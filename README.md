@@ -4,6 +4,8 @@
 
 基于 [Ganzhib/juejin-cli](https://github.com/Ganzhib/juejin-cli) 派生，保留来源历史和 MIT 许可证。公众号排版使用文颜 core；浏览器流程分别适配宝玉和小红书开源实现，来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
+当前开发版本为 0.2.0-alpha.1。新账号身份和任务格式直接替换旧结构，首次使用该版本需要重新登录；不会读取旧布局或自动搬迁凭据。
+
 ## 当前能力
 
 | 平台 | 已实现入口 | 明确边界 |
@@ -12,7 +14,7 @@
 | 小红书 | 主站与创作者中心登录、图文上传/发布、正式话题、自己的笔记查询、按 ID 回查 | 暂未开放视频与浏览器草稿；笔记 ID 以真实发布响应为准 |
 | 微信公众号 | 扫码登录、文颜排版、正文图片、封面、草稿保存与回读、正式发表、草稿和发表记录查询 | 发表不包含群发；平台要求管理员扫码时等待验证 |
 
-公共核心支持账号隔离、平台能力发现、源文件与图片指纹、持久化任务、跨平台部分失败、步骤回执和恢复。结果未知的写入不会自动重发，已完成步骤不会重复执行。
+公共核心通过开放的能力注册表描述输入、输出、副作用与验收级别，支持账号身份隔离、平台能力发现、源文件与图片指纹、持久化任务、跨平台部分失败、步骤回执和恢复。结果未知的写入不会自动重发，已完成步骤不会重复执行。
 
 真实账号验收和浏览器测试边界见 [实现与验收记录](LIVE_ACCEPTANCE.md)。代码实现不等于所有账号上的线上发表均已验证。
 
@@ -40,13 +42,13 @@ wm auth status --json
 
 首次扫码由用户完成。登录后由 CLI 操作后台。平台可能在后续发表时额外要求管理员验证，此时 CLI 保留任务并提示验证，不会绕过身份校验。
 
-多账号使用 `--account work` 等别名。账号目录位于 `~/.config/wemedia-cli/accounts/<platform>/<alias>/`，可用 `WM_HOME` 或 `--home` 覆盖。Cookie 和浏览器 Profile 只保存在本机，不写入回执或 Git 仓库。
+同一平台账号可使用多个别名，并共享会话与锁。可用 `wm account alias wechat main work` 添加别名；使用 `--account work` 选择目标。账号目录位于 `~/.config/wemedia-cli/accounts/<bindingId>/`，别名索引位于 `aliases/<platform>/`，可用 `WM_HOME` 或 `--home` 覆盖。Cookie 和浏览器 Profile 只保存在本机，不写入回执或 Git 仓库。
 
 ## 预览与发布
 
 ```bash
 # 只在本地解析和排版，不登录、不上传
-wm article preview article.md --platform wechat --output preview.html --json
+wm article preview article.md --platform wechat --output preview.json --json
 wm article publish article.md --to juejin:main,wechat:main --dry-run --json
 
 # 保存公众号草稿
@@ -126,3 +128,7 @@ npm run check:package
 [架构说明](docs/ARCHITECTURE.md) · [完整设计](docs/MULTIPLATFORM_ARCHITECTURE.md) · [SDK 与 AI 使用](docs/AI_USAGE.md) · [开源调研](docs/PLATFORM_RESEARCH.md)
 
 后续通用核心契约见 [设计方案](docs/rfcs/0001-generic-publishing-core.md)，开发顺序与完成条件见 [实施计划](docs/PUBLISHING_CORE_IMPLEMENTATION.md)。
+
+平台选项使用 frontmatter 或 `--options options.json`，不在通用 CLI 中固定分类、专栏或话题参数。扩展能力通过 `wm platform exec PLATFORM CAPABILITY --input input.json --json` 调用，读写共用同一身份和会话路径。例如掘金的分类、标签与专栏查询属于其独立能力。
+
+`wm` Skill 内按需加载公众号、小红书和掘金的独立平台指导。公共执行器没有平台 ID 或内容格式枚举；平台仍保留自己的字段、限制、渲染和工作流。

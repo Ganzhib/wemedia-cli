@@ -1,29 +1,51 @@
 # 多平台发布的实现结构
 
-wm 的命令入口是 src/wm.ts，命令树与内置平台装配位于 src/cli/wm-program.ts。CLI、SDK 和 Skill 共用同一组实际处理器，schema 从 Commander 命令树生成。
+当前实现为 0.2 第一批能力契约与账号身份。唯一可执行入口为 src/wm.ts，公共命令位于 cli/wm-program，内置平台只在 platform/builtins 装配。
 
-```text
-cli/wm-program → services/publishing → core/types 与 platform adapter
-                                        ├─ platform/juejin
-                                        ├─ platform/xiaohongshu
-                                        └─ platform/wechat
+## 调用链
 
-content/document：元数据、源文件指纹和平台资产清单
-runtime/accounts：平台及账号隔离
-runtime/storage：原子保存、持久化与文件锁
-runtime/managed-browser：受管理浏览器、导航错误与关闭生命周期
-```
+~~~text
+wm CLI / SDK
+  → PublishingService（准备、持久化写入、只读调用、回查）
+  → AccountRepository.use（按真实身份锁定并读取当前会话代次）
+  → Platform.withSession（连接一次、验证身份、复用会话）
+  → 注册能力（probe → execute / inspect）
+  → 各平台真实协议或浏览器流程
+~~~
 
-公共 content 和 runtime 不导入具体平台协议。掘金原有的会话、写作服务、签到和浏览器传输已迁至 platform/juejin，公共图片处理不再受到掘金上传限制约束。
+核心不再持有固定 draft/publish 接口、平台格式枚举或要求每个平台实现的列表全集。能力通过开放字符串 ID 注册，可声明 read 或 remote-write；读取和写入使用同一平台注册表。
 
-平台通过 operations 注册写能力，通过 lists 注册读能力。注册表直接描述这些处理器，不维护第二份能力列表。新增平台需实现其适配器并在 composition root 注册，无需修改公共任务调度。
+## 契约所有权
 
-PublishingService 先准备全部目标，再按平台账号锁执行。写入步骤开始前持久化 running，结束后保存结果；意外退出后 running 被视为 unknown。成功步骤可在恢复时复用，明确业务拒绝可以通过显式 resume 再执行，网络和程序错误不会自动重放。源文件及图片摘要改变后旧任务拒绝继续。
+core/capability 的工厂从同一份 Zod schema 推导处理器输入类型、输入边界校验和 JSON Schema。读取默认值在进入处理器前应用；成功的内部结果依靠类型契约，不重复逐字段验证。能力自行声明输入、输出、准备产物、探测、成功状态和真实处理器。
 
-账号元数据、浏览器 Profile、任务计划与回执使用独立目录和私有权限。业务账号 ID 与用户别名分别保存。日常操作重新验证账号，不能把同名别名下的另一个账号当作原账号。
+服务只保存不透明的准备产物，不解释标题、Markdown、封面、分类或话题。Markdown 准备和源文件完整性校验位于 content/document，由文本平台选择使用；二进制平台可使用自己的契约。内容快照与完整发布计划属于下一批工作。
 
-公众号使用文颜 core 3.0.6 渲染、DOMPurify 清理进入已登录编辑器的 HTML，再通过平台编辑器上传图片和保存。选择未引入 Mermaid 依赖的版本，避免将与当前图文流程无关的运行时和已知问题带入安装包。小红书将已调研的浏览器流程移植到 Playwright，保留站内安全 SDK，通过真实响应获取笔记 ID，不提取或伪造签名。
+## 身份与会话
 
-设计目标与后续扩展说明见 [完整设计](MULTIPLATFORM_ARCHITECTURE.md)，账号验证与写入验收边界见 [验收记录](../LIVE_ACCEPTANCE.md)。
+AccountIdentity 由 platformId、平台 accountId 和确定的 bindingId 组成。别名仅索引身份，不能成为凭据或锁的所有者。任务保存身份快照；别名重绑不会将既有任务转发到其他账号。
 
-下一版的通用契约见 [通用发布核心设计](rfcs/0001-generic-publishing-core.md) 与 [实施计划](PUBLISHING_CORE_IMPLEMENTATION.md)。核心不包含具体平台、固定内容格式或平台工作流分支；新契约直接替换旧契约，不建立兼容层。
+登录先在私有临时目录建立会话，身份确认后关闭浏览器，在账号锁内保存新会话代次，再提交别名。错误账号和失败登录不能覆盖既有会话。同一真实账号的多个别名共享锁和当前会话代次。
+
+~~~text
+accounts/<bindingId>/account.json
+accounts/<bindingId>/sessions/<sessionId>/
+aliases/<platform>/<alias>.json
+tasks/<jobId>/job.json
+~~~
+
+新布局只通过登录建立。旧账号目录和旧任务格式不扫描、不读取、不迁移；历史文件不覆盖。
+
+## 平台个性化
+
+平台目录持有自己的选项 schema、内容准备、驱动与请求字段。公众号保留 HTML 排版、正文图、封面和保存回读；小红书保留短文、图集、话题、可见范围和创作者会话探测；掘金保留摘要、分类、标签、专栏和上传协议。
+
+Skill 保留 wm 总入口，同时按平台加载 references/wechat、xiaohongshu、juejin。平台知识不混进核心，也不会因统一入口而丢失。
+
+## 执行与验证
+
+每个写能力都由服务包裹持久化步骤，避免自定义处理器遗漏回执后被重放。驱动还可以记录上传、草稿和提交等内部步骤。已完成步骤复用；网络或进程异常保留 unknown，显式业务拒绝才允许继续尝试。
+
+当前仍沿用单机任务快照。独立的跨任务操作记录、资产快照、步骤级权威回查和完整验证恢复按 [实施计划](PUBLISHING_CORE_IMPLEMENTATION.md) 后续批次实现。
+
+测试通过新账号和能力路径调用实际 HTTP 构造器与真实浏览器处理器，所有发布请求在测试中拦截。另有不带草稿能力的自定义平台、二进制载荷、资源种类、别名重绑、跨别名并发和连接关闭测试。线上验收与模拟页面验证分别记录。

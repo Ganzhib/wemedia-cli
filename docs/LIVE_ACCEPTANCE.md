@@ -1,4 +1,6 @@
-# 0.1.0 真实用户验收与优化清单
+# 上游 juejin-cli 历史验收记录
+
+本文保留上游单平台 CLI 当时的验证记录，不代表 wm 当前的命令、技能或线上验收状态。旧版 `dist/cli.js`、独立平台命令树及 `scripts/live-acceptance.mjs` 已移除；wm 当前验收见仓库根目录 [LIVE_ACCEPTANCE.md](../LIVE_ACCEPTANCE.md)。
 
 ## 2026-11-12 后续验收
 
@@ -40,7 +42,7 @@
 
 ## 可重复验收
 
-`scripts/live-acceptance.mjs` 接收已安装包的 `dist/cli.js` 路径，默认只读；输出每步通过状态与耗时。显式传 `--write` 只创建或更新草稿并上传素材，不创建测试专栏或公开发布占位正文。脚本遇到写入失败立即停止，输出已取得的 ID，依靠 `juejin history --json` 核对远端状态后再决定下一步。输出字段为 `command_check_pass_rate`，公开发布结果另列 `not_tested`。
+当时的 `scripts/live-acceptance.mjs` 接收已安装包的 `dist/cli.js` 路径，默认只读；输出每步通过状态与耗时。显式传 `--write` 只创建或更新草稿并上传素材，不创建测试专栏或公开发布占位正文。脚本遇到写入失败立即停止，输出已取得的 ID，依靠 `juejin history --json` 核对远端状态后再决定下一步。输出字段为 `command_check_pass_rate`，公开发布结果另列 `not_tested`。
 
 下一轮目标：先修复搜索分页，再在多轮、不同时间段和网络条件下运行无写入验收；对写入流程使用独立测试账号和可清理的内容，记录每步成功率、P50/P95 耗时以及审核完成时间。达到 95% 需要足够样本和明确的成功判定，不能从一次运行推断。
 

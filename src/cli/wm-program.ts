@@ -2,12 +2,9 @@ import { Command } from 'commander';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { PlatformRegistry } from '../core/registry.js';
-import type { Intent } from '../core/types.js';
-import { createJuejinAdapter } from '../platform/juejin/adapter.js';
-import { createWechatAdapter } from '../platform/wechat/adapter.js';
-import { createXiaohongshuAdapter } from '../platform/xiaohongshu/adapter.js';
-import { AccountStore, listAccounts, wmHome } from '../runtime/accounts.js';
+import type { PlatformRegistry } from '../core/registry.js';
+import { defaultRegistry } from '../platform/builtins.js';
+import { AccountRepository, wmHome } from '../runtime/accounts.js';
 import { autoInstallSkill } from '../runtime/skills.js';
 import { PublishingService, type PublishJob } from '../services/publishing.js';
 import { CliError } from '../shared/errors.js';
@@ -17,144 +14,129 @@ import { describeCommand } from './commands/schema.js';
 import { registerSkill } from './commands/skill.js';
 
 export interface WmProgramOptions { streams?: CliStreams; registry?: PlatformRegistry; jsonDiagnostics?: boolean }
-export function defaultRegistry(): PlatformRegistry {
-  return new PlatformRegistry([createJuejinAdapter(), createXiaohongshuAdapter(), createWechatAdapter()]);
+async function jsonFile(file: string): Promise<unknown> {
+  let text: string;
+  if (file === '-') { const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk); text = Buffer.concat(chunks).toString('utf8'); }
+  else text = await readFile(resolve(file), 'utf8');
+  try { return JSON.parse(text); } catch { throw new CliError('INPUT', '输入文件不是有效 JSON。'); }
 }
-
-function limit(value: string): number {
-  const number = Number(value);
-  if (!Number.isInteger(number) || number < 1 || number > 100) throw new CliError('INPUT', 'limit 必须为 1–100 的整数。');
-  return number;
-}
-
-function articleOptions(command: Command): Command {
-  return command.option('--title <title>', '覆盖标题').option('--summary <text>', '摘要')
-    .option('--author <name>', '作者').option('--cover <file>', '本地封面')
-    .option('--tags <names>', '逗号分隔的标签或话题').option('--category <category>', '平台分类')
-    .option('--columns <ids>', '掘金专栏 ID，逗号分隔').option('--content-file <file>', '平台短文正文文件')
-    .option('--dry-run', '仅本地解析和校验，不登录、不上传、不保存任务').option('--new-copy', '明确创建新副本，不复用已有任务');
-}
-
-async function overrides(options: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const metadata: Record<string, unknown> = {};
-  for (const name of ['title', 'summary', 'author', 'cover', 'tags', 'category', 'columns']) {
-    if (options[name] !== undefined) metadata[name] = options[name];
-  }
-  if (options.contentFile) metadata.content = await readFile(resolve(options.contentFile as string), 'utf8');
-  return metadata;
+function contentOptions(command: Command): Command {
+  return command.option('--options <file>', '平台选项 JSON，字段见能力 schema')
+    .option('--dry-run', '只准备内容，不登录、不上传、不保存任务').option('--new-copy', '明确创建新的发布副本');
 }
 
 export function createWmProgram(options: WmProgramOptions = {}): Command {
   const output = new CliOutput(options.streams ?? process);
-  const program = new Command('wm').description('自媒体多平台文章发布 CLI：登录、草稿、发布与任务回执').version(VERSION)
-    .option('--json', '输出单个 JSON 文档，失败使用非零退出码')
-    .option('--home <directory>', '账号和任务目录', wmHome()).exitOverride();
-  const json = () => program.opts<{ json?: boolean }>().json === true;
+  const program = new Command('wm').description('统一的多平台内容管理 CLI').version(VERSION)
+    .option('--json', '输出单个 JSON 文档，错误位于 stderr').option('--home <directory>', '账号和任务目录', wmHome()).exitOverride();
+  const json = () => program.opts().json === true;
   program.configureOutput({ writeOut: text => { output.streams.stdout.write(text); }, writeErr: text => { if (!options.jsonDiagnostics && !json()) output.streams.stderr.write(text); } });
   const registry = options.registry ?? defaultRegistry();
-  const home = () => resolve(program.opts<{ home: string }>().home);
+  const home = () => resolve(program.opts().home as string);
+  const accounts = () => new AccountRepository(home());
   const service = () => new PublishingService(home(), registry);
   const emit = (value: unknown) => output.success(value, json());
   const emitJob = (job: PublishJob) => {
-    const result = { job_id: job.id, intent: job.intent, targets: job.targets.map(target => ({
-      platform: target.platform, account: target.account, status: target.status, remote: target.remote, message: target.message,
+    const result = { job_id: job.id, capability: job.capabilityId, targets: job.targets.map(target => ({
+      identity: target.identity, alias: target.alias, status: target.status, remote: target.remote, message: target.message, data: target.data,
     })) };
-    const failed = job.targets.filter(target => ['rejected', 'unknown', 'waiting_for_verification', 'running'].includes(target.status));
-    if (failed.length) throw new CliError('PARTIAL', '任务有未完成的目标，请保留任务 ID 后查询或恢复。', result);
+    const failed = job.targets.some(target => {
+      const capability = registry.capability(target.identity.platformId, job.capabilityId);
+      return capability.effect !== 'remote-write' || !capability.successStates.some(state => state === target.status);
+    });
+    if (failed) throw new CliError('PARTIAL', '任务包含未完成的目标。', result);
     emit(result);
   };
 
-  const platform = program.command('platform').description('发现已实现的平台能力');
+  const platform = program.command('platform').description('发现平台、契约及调用已注册能力');
   platform.command('list').action(() => emit(registry.describe()));
   platform.command('capabilities <platform>').option('--account <alias>', '账号别名', 'main').action(async (id: string, flags: { account: string }) => {
-    const adapter = registry.get(id);
-    const account = new AccountStore(home(), id, flags.account);
-    const configured = await account.profile();
-    const profile = configured ? await account.lock(() => adapter.status(account)) : undefined;
-    emit({ ...registry.describe().find(platform => platform.id === adapter.id), account: profile, authentication: profile ? 'verified' : 'login_required' });
+    const definition = registry.get(id);
+    const description = registry.describe(id)[0];
+    const identity = await accounts().find(id, flags.account);
+    if (!identity) { emit({ ...description, authentication: 'login_required' }); return; }
+    emit(await accounts().use(identity, account => definition.withSession(account, async session => {
+      const capabilities = [];
+      for (const capability of description.capabilities) capabilities.push({ ...capability, availability: await session.probe(capability.id) });
+      return { ...description, identity, profile: session.profile, authentication: 'verified', capabilities };
+    })));
   });
+  platform.command('exec <platform> <capability>').option('--account <alias>', '账号别名', 'main').option('--input <file>', '能力输入 JSON，- 表示 stdin').option('--dry-run', '仅解析能力输入').option('--new-copy', '明确创建新副本')
+    .action(async (id: string, capabilityId: string, flags: { account: string; input?: string; dryRun?: boolean; newCopy?: boolean }) => {
+      registry.capability(id, capabilityId);
+      const input = flags.input ? await jsonFile(flags.input) : {};
+      if (flags.dryRun) { emit({ dry_run: true, targets: await service().prepare(capabilityId, input, [id + ':' + flags.account]) }); return; }
+      const result = await service().invoke(id, flags.account, capabilityId, input, flags.newCopy);
+      if (result.effect === 'remote-write') emitJob(result.value); else emit(result.value);
+    });
 
-  const auth = program.command('auth').description('只需平台登录，无需提取 Cookie 或配置开发者密钥');
+  const auth = program.command('auth').description('建立账号身份并登录平台');
   auth.command('login <platform>').option('--account <alias>', '账号别名', 'main').action(async (id: string, flags: { account: string }) => {
-    const adapter = registry.get(id);
-    const account = new AccountStore(home(), adapter.id, flags.account);
-    emit(await account.lock(async () => {
-      const profile = await account.verify(await adapter.login(account));
-      await account.save(profile);
-      return { platform: adapter.id, account: flags.account, profile };
-    }));
+    const definition = registry.get(id);
+    const binding = await accounts().login(id, flags.account, directory => definition.login(directory));
+    emit({ identity: binding.identity, name: binding.name, alias: flags.account });
   });
   auth.command('status [platform]').option('--account <alias>', '账号别名', 'main').action(async (id: string | undefined, flags: { account: string }) => {
-    const accounts = id ? [{ platform: registry.get(id).id, alias: flags.account }] : await listAccounts(home());
-    if (!accounts.length) throw new CliError('AUTH', '尚未配置账号，请运行 wm auth login <platform>。');
+    const identities = id ? [await accounts().resolve(registry.get(id).id, flags.account)] : (await accounts().list()).map(entry => entry.binding.identity);
+    if (!identities.length) throw new CliError('AUTH', '尚未建立账号绑定，请运行 wm auth login PLATFORM。');
     const result = [];
-    for (const entry of accounts) {
-      const account = new AccountStore(home(), entry.platform, entry.alias);
-      if (!await account.profile()) throw new CliError('AUTH', '此账号别名尚未登录。');
-      const profile = await account.lock(() => registry.get(entry.platform).status(account));
-      result.push({ platform: entry.platform, account: entry.alias, profile });
+    for (const identity of new Map(identities.map(identity => [identity.bindingId, identity])).values()) {
+      const profile = await accounts().use(identity, account => registry.get(identity.platformId).withSession(account, async session => session.profile));
+      result.push({ identity, profile });
     }
     emit(result);
   });
-  program.command('account').description('查看本机绑定的账号').command('list').action(async () => emit(await listAccounts(home())));
+  const account = program.command('account').description('账号别名与真实身份');
+  account.command('list').action(async () => emit((await accounts().list()).map(entry => ({ platform: entry.platform, alias: entry.alias, identity: entry.binding.identity, name: entry.binding.name }))));
+  account.command('alias <platform> <source> <alias>').option('--replace', '明确重绑已经存在的别名').action(async (id: string, source: string, alias: string, flags: { replace?: boolean }) => {
+    registry.get(id); emit(await accounts().alias(id, source, alias, flags.replace));
+  });
 
-  const execute = async (file: string, flags: Record<string, unknown>, intent: Intent) => {
+  const execute = async (file: string, flags: Record<string, unknown>, capabilityId: string) => {
     if (flags.to && flags.platform) throw new CliError('INPUT', '--to 与 --platform 只能使用一个。');
-    const destinations = flags.to ? (flags.to as string).split(',') : [String(flags.platform ?? '') + ':' + String(flags.account)];
+    const targets = flags.to ? String(flags.to).split(',') : [String(flags.platform ?? '') + ':' + String(flags.account ?? 'main')];
     if (!flags.to && !flags.platform) throw new CliError('INPUT', '请指定 --to 或 --platform。');
-    const metadata = await overrides(flags);
-    if (flags.dryRun) {
-      const prepared = await service().prepare(file, destinations, intent, metadata);
-      emit({ dry_run: true, targets: prepared.targets });
-      return;
-    }
-    const job = await service().create(file, destinations, intent, metadata, flags.newCopy === true);
-    emitJob(await service().run(job.id));
+    const input = { file, options: flags.options ? await jsonFile(String(flags.options)) : undefined };
+    if (flags.dryRun) { emit({ dry_run: true, targets: await service().prepare(capabilityId, input, targets) }); return; }
+    emitJob(await service().run((await service().create(capabilityId, input, targets, flags.newCopy === true)).id));
   };
-  const draft = program.command('draft').description('创建及查询平台草稿');
-  articleOptions(draft.command('create <file>').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main'))
-    .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'draft'));
-  const article = program.command('article').description('预览、发布及查询文章');
-  articleOptions(article.command('publish <file>').option('--to <targets>', '逗号分隔的 platform:account').option('--platform <platform>', '单个目标平台').option('--account <alias>', '账号别名', 'main'))
-    .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'publish'));
-  articleOptions(article.command('preview <file>').requiredOption('--platform <platform>', '目标平台').option('--output <file>', '另存平台渲染结果'))
-    .action(async (file: string, flags: Record<string, unknown>) => {
-      const adapter = registry.get(flags.platform as string);
-      const intent = adapter.operations.draft ? 'draft' : 'publish';
-      const prepared = await service().prepare(file, [adapter.id], intent, await overrides(flags));
-      if (flags.output) await writeFile(resolve(flags.output as string), prepared.targets[0].article.body, { mode: 0o600 });
-      emit({ preview: true, ...prepared.targets[0].article, output: flags.output });
+  const draft = program.command('draft').description('平台草稿');
+  contentOptions(draft.command('create <file>').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main'))
+    .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'draft.create'));
+  const article = program.command('article').description('平台内容');
+  contentOptions(article.command('publish <file>').option('--to <targets>', 'platform:account，逗号分隔').option('--platform <platform>', '单个平台').option('--account <alias>', '账号别名', 'main'))
+    .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'content.publish'));
+  article.command('preview <file>').requiredOption('--platform <platform>', '目标平台').option('--capability <id>', '准备的目标能力', 'content.publish').option('--options <file>', '平台选项 JSON').option('--output <file>', '保存平台预览 JSON')
+    .action(async (file: string, flags: { platform: string; capability: string; options?: string; output?: string }) => {
+      const prepared = await service().prepare(flags.capability, { file, options: flags.options ? await jsonFile(flags.options) : undefined }, [flags.platform]);
+      if (flags.output) await writeFile(resolve(flags.output), JSON.stringify(prepared[0].prepared, null, 2), { mode: 0o600 });
+      emit({ preview: true, prepared: prepared[0].prepared, output: flags.output });
     });
-  for (const [command, kind] of [[draft, 'draft'], [article, 'article']] as const) {
-    command.command('list').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main').option('--limit <number>', '最多 100 条', limit, 20)
-      .action(async (flags: { platform: string; account: string; limit: number }) => {
-        const adapter = registry.get(flags.platform);
-        const query = adapter.lists[kind];
-        if (!query) throw new CliError('UNSUPPORTED', adapter.name + ' 尚未实现此列表查询。');
-        const account = new AccountStore(home(), adapter.id, flags.account);
-        if (!await account.profile()) throw new CliError('AUTH', '请先运行 wm auth login ' + adapter.id);
-        emit(await account.lock(() => query.run(account, flags.limit)));
-      });
+  for (const [command, capabilityId] of [[draft, 'draft.list'], [article, 'article.list']] as const) {
+    command.command('list').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main').option('--limit <number>', '最多条数', Number, 20)
+      .action(async (flags: { platform: string; account: string; limit: number }) => emit((await service().invoke(flags.platform, flags.account, capabilityId, { limit: flags.limit })).value));
   }
-
-  const job = program.command('job').description('查看、回查及恢复持久化发布任务');
+  const job = program.command('job').description('执行回执与恢复');
   job.command('get <id>').action(async (id: string) => emit(await service().get(id)));
   job.command('resume <id>').action(async (id: string) => emitJob(await service().run(id)));
   job.command('refresh <id>').action(async (id: string) => emit(await service().refresh(id)));
-  program.command('schema [path...]').description('从实际命令定义查询参数契约').action((path: string[] = []) => {
+  program.command('schema [path...]').description('命令语法及注册能力的实际输入输出契约')
+    .option('--platform <id>', '只查看此平台的能力，不登录')
+    .option('--capability <id>', '只查看此能力，需同时指定平台')
+    .action((path: string[] = [], flags: { platform?: string; capability?: string }) => {
     let command = program;
-    for (const name of path) {
-      const child = command.commands.find(child => child.name() === name);
-      if (!child) throw new CliError('INPUT', '找不到命令路径：' + path.join(' '));
-      command = child;
-    }
-    emit({ command: describeCommand(command), global_options: describeCommand(program).options });
+    for (const name of path) { const child = command.commands.find(child => child.name() === name); if (!child) throw new CliError('INPUT', '找不到命令路径：' + path.join(' ')); command = child; }
+    if (flags.capability && !flags.platform) throw new CliError('INPUT', '--capability 需要指定 --platform。');
+    if (flags.platform && flags.capability) registry.capability(flags.platform, flags.capability);
+    const platforms = registry.describe(flags.platform);
+    if (flags.capability) for (const platform of platforms) platform.capabilities = platform.capabilities.filter(capability => capability.id === flags.capability);
+    emit({ command: describeCommand(command), global_options: describeCommand(program).options, platforms });
   });
   registerSkill({ program, emit });
-  program.command('doctor').description('检查本机运行环境，不访问平台或执行发布').action(async () => {
-    let installed = true;
-    try { await access(chromium.executablePath()); } catch { installed = false; }
-    emit({ node: process.version, version: VERSION, home: home(), browser_installed: installed, browser_setup: '登录时自动准备', accounts: await listAccounts(home()) });
+  program.command('doctor').description('检查本地环境').action(async () => {
+    let browserInstalled = true;
+    try { await access(chromium.executablePath()); } catch { browserInstalled = false; }
+    emit({ node: process.version, version: VERSION, home: home(), browser_installed: browserInstalled, accounts: (await accounts().list()).length });
   });
   return program;
 }

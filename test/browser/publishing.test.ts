@@ -4,10 +4,23 @@ import { chromium, type BrowserContext } from 'playwright';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { composeWechatDraft, insertWechatHtml, publishWechatDraft, readWechatList } from '../../src/platform/wechat/adapter.js';
-import { submitXhs, xhsProfile } from '../../src/platform/xiaohongshu/adapter.js';
+import { composeWechatDraft, insertWechatHtml, publishWechatDraft, readWechatList, createWechatPlatform } from '../../src/platform/wechat/adapter.js';
+import { submitXhs, xhsProfile, createXiaohongshuPlatform } from '../../src/platform/xiaohongshu/adapter.js';
 import { ensureBrowser } from '../../src/runtime/managed-browser.js';
 import { CliError } from '../../src/shared/errors.js';
+import { AccountRepository } from '../../src/runtime/accounts.js';
+import { PlatformRegistry } from '../../src/core/registry.js';
+import { PublishingService } from '../../src/services/publishing.js';
+
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64');
+async function contentFixture(t: TestContext) {
+  const home = await mkdtemp(join(tmpdir(), 'wm-adapter-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const file = join(home, 'article.md');
+  await writeFile(join(home, 'cover.png'), png);
+  await writeFile(file, '# 实际流程\n\n完整正文内容。\n\n![图片](./cover.png)');
+  return { home, file };
+}
 
 async function browser(t: TestContext): Promise<BrowserContext> {
   await ensureBrowser();
@@ -127,4 +140,103 @@ test('WeChat list reads stable IDs from current page data and distinguishes empt
   await page.evaluate(() => { (window as any).wx.cgiData = { publish_list: [{ publish_info: JSON.stringify({ appmsgex: [{ appmsgid: 43, itemidx: 1, title: '文章', link: 'https://mp.weixin.qq.com/s/example' }] }) }] }; });
   assert.deepEqual(await readWechatList(page, 'article', 10), [{ id: '43', item_index: 1, title: '文章', url: 'https://mp.weixin.qq.com/s/example' }]);
   await assert.rejects(readWechatList(page, 'draft', 10), (error: CliError) => error.code === 'PROTOCOL');
+});
+
+test('WeChat capability runs through account binding, one browser session, real composing and durable receipts', async t => {
+  const { home, file } = await contentFixture(t);
+  let opens = 0, closes = 0, profileLoads = 0;
+  const platform = createWechatPlatform({ withBrowser: async (_account, action) => {
+    opens++;
+    const context = await browser(t);
+    await context.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.hostname === 'mmbiz.qpic.cn') return route.fulfill({ contentType: 'image/png', body: png });
+      if (url.hostname !== 'mp.weixin.qq.com') return route.abort();
+      if (url.pathname === '/') { profileLoads++; return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<script>history.replaceState({},"","/cgi-bin/home?token=FIXTURE");window.wx={data:{user_name:"wechat-id",nick_name:"Creator"}}</script><div class="new-creation__menu"><a target="_blank" href="/cgi-bin/appmsg?token=FIXTURE">文章</a></div>' }); }
+      if (url.pathname === '/cgi-bin/home') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<script>window.wx={data:{user_name:"wechat-id",nick_name:"Creator"}}</script><div class="new-creation__menu"><a target="_blank" href="/cgi-bin/appmsg?token=FIXTURE">文章</a></div>' });
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: editorFixture });
+    });
+    try { return await action(context, await context.newPage()); }
+    finally { await context.close(); closes++; }
+  } });
+  const accounts = new AccountRepository(home);
+  await accounts.login('wechat', 'main', async () => ({ id: 'wechat-id', name: 'Creator' }));
+  const service = new PublishingService(home, new PlatformRegistry([platform]));
+  const job = await service.create('draft.create', { file }, ['wechat']);
+  const result = await service.run(job.id);
+  assert.equal(result.targets[0].status, 'draft_saved', result.targets[0].message);
+  assert.equal(result.targets[0].remote?.id, '123456');
+  assert.equal(result.targets[0].steps['draft.create'].phase, 'done');
+  await service.run(job.id);
+  assert.deepEqual({ opens, closes, profileLoads }, { opens: 1, closes: 1, profileLoads: 1 });
+});
+
+test('Xiaohongshu capability fills images and formal topics and captures the real submission response in one session', async t => {
+  const { home, file } = await contentFixture(t);
+  let opens = 0, closes = 0, submissions = 0;
+  let submitted: { title: string; images: number; topics: number } | undefined;
+  const profile = '<div class="main-container"><div class="user"><div class="link-wrapper"><a class="link-wrapper" href="/user/profile/abcdef012345">我</a></div></div></div><div class="user-name">Creator</div><div class="feeds-container"><div class="note-item"><a class="cover" href="/explore/0123456789abcdef01234567">封面</a><div class="title">实际流程</div></div></div>';
+  const composer = `<!doctype html><meta charset="utf-8"><div class="creator-tab">上传图文</div><input type="file" multiple>
+    <div class="img-preview-area"></div><div class="d-input"><input></div><div class="ql-editor" contenteditable="true"></div>
+    <div id="creator-editor-topic-container"><button class="item">工程</button></div><xhs-publish-btn is-publish="true"></xhs-publish-btn>
+    <script>
+    let count=0;
+    document.querySelector('input[type=file]').onchange=e=>{count=e.target.files.length;document.querySelector('.img-preview-area').innerHTML='<div class="pr"></div>'.repeat(count);};
+    document.querySelector('.item').onclick=()=>{const topic=document.createElement('a');topic.dataset.topicId='topic-1';topic.textContent='#工程';document.querySelector('.ql-editor').append(topic);};
+    document.querySelector('xhs-publish-btn').addEventListener('publish',()=>fetch('https://edith.xiaohongshu.com/web_api/sns/v2/note',{method:'POST',body:JSON.stringify({title:document.querySelector('.d-input input').value,images:count,topics:document.querySelectorAll('a[data-topic-id]').length})}));
+    </script>`;
+  const platform = createXiaohongshuPlatform({ withBrowser: async (_account, action) => {
+    opens++;
+    const context = await browser(t);
+    await context.route('**/*', async route => {
+      const url = new URL(route.request().url());
+      if (url.hostname === 'edith.xiaohongshu.com') {
+        submissions++; submitted = route.request().postDataJSON();
+        return route.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ code: 0, data: { note_id: '0123456789abcdef01234567' } }) });
+      }
+      if (url.hostname === 'creator.xiaohongshu.com') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: composer });
+      if (url.hostname === 'www.xiaohongshu.com') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: profile });
+      return route.abort();
+    });
+    try { return await action(context, await context.newPage()); }
+    finally { await context.close(); closes++; }
+  } });
+  await new AccountRepository(home).login('xiaohongshu', 'main', async () => ({ id: 'abcdef012345', name: 'Creator' }));
+  const service = new PublishingService(home, new PlatformRegistry([platform]));
+  const job = await service.create('content.publish', { file, options: { content: '针对图文平台准备的正文。', tags: ['工程'] } }, ['xiaohongshu']);
+  const result = await service.run(job.id);
+  assert.equal(result.targets[0].status, 'submitted', result.targets[0].message);
+  assert.equal(result.targets[0].remote?.kind, 'note');
+  assert.equal(result.targets[0].remote?.id, '0123456789abcdef01234567');
+  assert.deepEqual(submitted, { title: '实际流程', images: 1, topics: 1 });
+  await service.run(job.id);
+  assert.deepEqual({ opens, closes, submissions }, { opens: 1, closes: 1, submissions: 1 });
+  const list = await service.invoke('xiaohongshu', 'main', 'article.list', { limit: 2 });
+  assert.deepEqual(list.value, { items: [{ resource: { kind: 'note', id: '0123456789abcdef01234567', url: 'https://www.xiaohongshu.com/explore/0123456789abcdef01234567' }, title: '实际流程' }] });
+  assert.deepEqual({ opens, closes, submissions }, { opens: 2, closes: 2, submissions: 1 });
+});
+
+test('WeChat list capabilities use the shared identity session and retain multi-item resource selectors', async t => {
+  const { home } = await contentFixture(t);
+  let opens = 0, closes = 0;
+  const platform = createWechatPlatform({ withBrowser: async (_account, action) => {
+    opens++;
+    const context = await browser(t);
+    await context.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.hostname !== 'mp.weixin.qq.com') return route.abort();
+      if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<script>history.replaceState({},"","/cgi-bin/home?token=FIXTURE");window.wx={data:{user_name:"wechat-id",nick_name:"Creator"}}</script><a href="/cgi-bin/appmsg">草稿箱</a><a href="/cgi-bin/appmsgpublish">发表记录</a>' });
+      assert.equal(url.searchParams.get('count'), '3');
+      const draft = url.pathname === '/cgi-bin/appmsg';
+      const data = draft ? { item: [{ app_id: 42, title: '草稿' }] } : { publish_list: [{ publish_info: JSON.stringify({ appmsgex: [{ appmsgid: 43, itemidx: 1, title: '文章', link: 'https://mp.weixin.qq.com/s/example' }] }) }] };
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<h3>' + (draft ? '草稿箱' : '发表记录') + '</h3><script>window.wx={cgiData:' + JSON.stringify(data) + '}</script>' });
+    });
+    try { return await action(context, await context.newPage()); }
+    finally { await context.close(); closes++; }
+  } });
+  await new AccountRepository(home).login('wechat', 'main', async () => ({ id: 'wechat-id', name: 'Creator' }));
+  const service = new PublishingService(home, new PlatformRegistry([platform]));
+  assert.deepEqual((await service.invoke('wechat', 'main', 'draft.list', { limit: 3 })).value, { items: [{ resource: { kind: 'draft', id: '42' }, title: '草稿' }] });
+  assert.deepEqual((await service.invoke('wechat', 'main', 'article.list', { limit: 3 })).value, { items: [{ resource: { kind: 'article', id: '43', url: 'https://mp.weixin.qq.com/s/example', selector: { item_index: '1' } }, title: '文章' }] });
+  assert.deepEqual({ opens, closes }, { opens: 2, closes: 2 });
 });

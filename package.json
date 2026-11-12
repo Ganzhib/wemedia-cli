@@ -1,6 +1,6 @@
 {
   "name": "@ganzhibin/wemedia-cli",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.1",
   "description": "AI-native multi-platform publishing CLI for Juejin, Xiaohongshu and WeChat",
   "type": "module",
   "license": "MIT",
@@ -46,7 +46,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.contracts.json",
     "test": "tsx --test test/*.test.ts",
     "dev": "tsx src/wm.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",
@@ -69,7 +69,8 @@
     "json-bigint": "^1.0.0",
     "mdast-util-from-markdown": "^2.0.2",
     "mdast-util-to-markdown": "^2.1.2",
-    "playwright": "^1.56.0"
+    "playwright": "^1.56.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/jsdom": "27.0.0",

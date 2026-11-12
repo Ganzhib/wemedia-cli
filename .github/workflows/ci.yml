@@ -7,8 +7,6 @@ permissions:
   contents: read
 env:
   WM_AUTO_INSTALL_SKILL: '0'
-  JUEJIN_AUTO_INSTALL_SKILL: '0'
-  JUEJIN_AUTO_UPDATE: '0'
 jobs:
   verify:
     runs-on: ${{ matrix.os }}

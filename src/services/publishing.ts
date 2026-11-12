@@ -1,175 +1,153 @@
-import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { randomUUID, createHash } from 'node:crypto';
+import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Intent, OperationContext, OperationResult, PreparedArticle, RemoteReference } from '../core/types.js';
+import { z } from 'zod';
+import type { AccountScope, OperationContext } from '../core/types.js';
+import { accountIdentitySchema, outcomeSchema, remoteReferenceSchema } from '../core/types.js';
 import type { PlatformRegistry } from '../core/registry.js';
-import { digest, readDocument } from '../content/document.js';
-import { AccountStore, validateName } from '../runtime/accounts.js';
+import { parseInput } from '../core/capability.js';
+import { AccountRepository, validateName } from '../runtime/accounts.js';
 import { readJson, withFileLock, writeJson } from '../runtime/storage.js';
 import { CliError } from '../shared/errors.js';
-import { VERSION } from '../package.js';
 
-export interface StepRecord { phase: 'running' | 'done' | 'rejected' | 'unknown' | 'waiting_for_verification'; value?: unknown }
-export interface TargetJob {
-  platform: string;
-  account: string;
-  driver: string;
-  version: string;
-  article: PreparedArticle;
-  steps: Record<string, StepRecord>;
-  status: 'planned' | 'running' | OperationResult['status'];
-  remote?: RemoteReference;
-  message?: string;
-}
-export interface PublishJob {
-  schema: 1;
-  id: string;
-  createdAt: string;
-  source: { file: string; digest: string };
-  intent: Intent;
-  targets: TargetJob[];
-}
+const stepSchema = z.object({ phase: z.enum(['running', 'done', 'rejected', 'unknown', 'waiting_for_verification']), value: z.unknown().optional() });
+const targetSchema = z.object({
+  identity: accountIdentitySchema, alias: z.string(), driver: z.object({ id: z.string(), version: z.string() }),
+  prepared: z.unknown(), steps: z.record(z.string(), stepSchema), status: z.union([z.literal('planned'), z.literal('running'), outcomeSchema]),
+  remote: remoteReferenceSchema.optional(), message: z.string().optional(),
+  data: z.json().optional(),
+});
+const jobSchema = z.strictObject({ schema: z.literal(2), id: z.string().regex(/^[a-f0-9]{32}$/), createdAt: z.string(), capabilityId: z.string(), targets: z.array(targetSchema) });
+export type PublishJob = z.infer<typeof jobSchema>;
+export type TargetJob = z.infer<typeof targetSchema>;
+export type StepRecord = z.infer<typeof stepSchema>;
+const uncertain = (steps: TargetJob['steps']) => Object.values(steps).some(step => ['running', 'unknown', 'waiting_for_verification'].includes(step.phase));
 
-export function parseTarget(value: string): { platform: string; account: string } {
+export function parseTarget(value: string) {
   const parts = value.split(':');
   if (parts.length > 2) throw new CliError('INPUT', '目标格式应为 platform:account。');
-  return { platform: validateName(parts[0]), account: validateName(parts[1] ?? 'main') };
+  return { platform: validateName(parts[0]), alias: validateName(parts[1] ?? 'main') };
 }
-
 function jobName(value: string): string {
   if (!/^[a-f0-9]{32}$/.test(value)) throw new CliError('INPUT', '无效任务 ID。');
   return value;
 }
+function readContext(account: AccountScope): OperationContext {
+  return { account, step: async () => { throw new Error('Read capability cannot start a write step'); }, remember: async () => { throw new Error('Read capability cannot record a write'); } };
+}
 
 export class PublishingService {
-  constructor(readonly home: string, readonly registry: PlatformRegistry) {}
-
-  private file(id: string): string { return join(this.home, 'jobs', jobName(id), 'job.json'); }
-  private save(job: PublishJob): Promise<void> { return writeJson(this.file(job.id), job); }
-
+  readonly accounts: AccountRepository;
+  constructor(readonly home: string, readonly registry: PlatformRegistry) { this.accounts = new AccountRepository(home); }
+  private file(id: string) { return join(this.home, 'tasks', jobName(id), 'job.json'); }
+  private save(job: PublishJob) { return writeJson(this.file(job.id), job); }
   async get(id: string): Promise<PublishJob> {
-    const job = await readJson<PublishJob>(this.file(id));
-    if (!job) throw new CliError('INPUT', '找不到任务：' + id);
-    if (job.schema !== 1 || job.id !== id) throw new CliError('INPUT', '任务文件版本或 ID 不匹配。');
+    const value = await readJson(this.file(id));
+    if (!value) throw new CliError('INPUT', '找不到当前格式的任务：' + id);
+    const job = parseInput(jobSchema, value);
+    if (job.id !== id) throw new CliError('INPUT', '任务 ID 不匹配。');
     return job;
   }
-
-  async prepare(file: string, targets: string[], intent: Intent, overrides: Record<string, unknown> = {}) {
+  async prepare(capabilityId: string, input: unknown, targets: string[]) {
     if (!targets.length) throw new CliError('INPUT', '至少指定一个目标平台。');
-    const document = await readDocument(file);
-    const prepared: TargetJob[] = [];
+    const prepared: { platform: string; alias: string; prepared: unknown }[] = [];
     for (const value of [...new Set(targets)]) {
       const target = parseTarget(value);
-      const adapter = this.registry.get(target.platform);
-      if (!adapter.operations[intent]) throw new CliError('UNSUPPORTED', adapter.name + ' 当前不支持此操作：' + intent);
-      if (prepared.some(entry => entry.platform === target.platform && entry.account === target.account)) continue;
-      const options = { ...document.metadata, ...document.platforms[target.platform], ...overrides };
-      const article = await adapter.prepare(document, options);
-      prepared.push({ ...target, driver: adapter.driver, version: adapter.version, article, steps: {}, status: 'planned' });
+      if (prepared.some(entry => entry.platform === target.platform && entry.alias === target.alias)) continue;
+      const capability = this.registry.capability(target.platform, capabilityId);
+      prepared.push({ ...target, prepared: await capability.prepare(input) });
     }
-    return { document, targets: prepared };
+    return prepared;
   }
-
-  async create(file: string, targets: string[], intent: Intent, overrides: Record<string, unknown> = {}, newCopy = false): Promise<PublishJob> {
-    // Prepare every destination before the first authenticated request or upload.
-    const prepared = await this.prepare(file, targets, intent, overrides);
-    // Destination order changes presentation, not the user's publication intent.
-    const targetsByName = [...prepared.targets].sort((a, b) => (a.platform + ':' + a.account).localeCompare(b.platform + ':' + b.account));
-    const identity = { source: prepared.document.sourceDigest, file: prepared.document.file, intent, targets: targetsByName, cli: VERSION };
-    const nonce = newCopy ? randomUUID() : '';
-    const id = digest(JSON.stringify(identity) + nonce).slice(0, 32);
-    return withFileLock(join(this.home, 'jobs', id + '.lock'), async () => {
-      const existing = await readJson<PublishJob>(this.file(id));
-      if (existing) return existing;
-      const job: PublishJob = {
-        schema: 1, id, intent, createdAt: new Date().toISOString(),
-        source: { file: prepared.document.file, digest: prepared.document.sourceDigest }, targets: prepared.targets,
-      };
+  async create(capabilityId: string, input: unknown, destinations: string[], newCopy = false): Promise<PublishJob> {
+    const prepared = await this.prepare(capabilityId, input, destinations);
+    const targets: TargetJob[] = [];
+    for (const target of prepared) {
+      const capability = this.registry.capability(target.platform, capabilityId);
+      if (capability.effect !== 'remote-write') throw new CliError('INPUT', '只读能力无需创建写入任务。');
+      const identity = await this.accounts.resolve(target.platform, target.alias);
+      if (targets.some(entry => entry.identity.bindingId === identity.bindingId)) continue;
+      targets.push({ identity, alias: target.alias, driver: { ...this.registry.get(target.platform).driver }, prepared: target.prepared, steps: {}, status: 'planned' });
+    }
+    const identity = targets.map(({ identity, prepared }) => ({ identity, prepared })).sort((a, b) => a.identity.bindingId.localeCompare(b.identity.bindingId));
+    const id = createHash('sha256').update(JSON.stringify({ capabilityId, targets: identity, nonce: newCopy ? randomUUID() : '' })).digest('hex').slice(0, 32);
+    return withFileLock(join(this.home, 'tasks', id + '.lock'), async () => {
+      if (await readJson(this.file(id))) return this.get(id);
+      const job: PublishJob = { schema: 2, id, createdAt: new Date().toISOString(), capabilityId, targets };
       await this.save(job);
       return job;
     });
   }
-
-  private async event(job: PublishJob, target: TargetJob, stage: string, phase: string): Promise<void> {
-    const directory = join(this.home, 'jobs', job.id);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await appendFile(join(directory, 'events.jsonl'), JSON.stringify({
-      time: new Date().toISOString(), platform: target.platform, account: target.account, stage, phase,
+  private async event(job: PublishJob, target: TargetJob, stage: string, phase: string) {
+    await appendFile(join(this.home, 'tasks', job.id, 'events.jsonl'), JSON.stringify({
+      time: new Date().toISOString(), binding_id: target.identity.bindingId, stage, phase,
     }) + '\n', { mode: 0o600 });
   }
-
-  private context(job: PublishJob, target: TargetJob, account: AccountStore): OperationContext {
-    return { account, remember: async remote => { target.remote = remote; await this.save(job); }, step: async <T>(name: string, action: () => Promise<T>): Promise<T> => {
-      const previous = target.steps[name];
-      if (previous?.phase === 'done') return previous.value as T;
-      if (previous && ['running', 'unknown', 'waiting_for_verification'].includes(previous.phase)) {
-        throw new CliError('UNKNOWN', '上次写入结果尚未确认，不会重发。', { job_id: job.id, step: name });
-      }
-      target.steps[name] = { phase: 'running' };
-      await this.save(job);
-      await this.event(job, target, name, 'started');
-      let value: T;
-      try { value = await action(); }
-      catch (error) {
-        let phase: StepRecord['phase'] = 'unknown';
-        if (error instanceof CliError && error.details?.outcome === 'rejected') phase = 'rejected';
-        if (error instanceof CliError && error.code === 'VERIFICATION') phase = 'waiting_for_verification';
-        target.steps[name] = { phase };
+  private context(job: PublishJob, target: TargetJob, account: AccountScope): OperationContext {
+    return {
+      account, remember: async remote => { target.remote = remote; await this.save(job); },
+      step: async <T>(name: string, action: () => Promise<T>): Promise<T> => {
+        const previous = target.steps[name];
+        if (previous?.phase === 'done') return previous.value as T;
+        if (previous && ['running', 'unknown', 'waiting_for_verification'].includes(previous.phase)) throw new CliError('UNKNOWN', '上次写入尚未确认，不会重发。', { job_id: job.id, step: name });
+        target.steps[name] = { phase: 'running' };
         await this.save(job);
-        await this.event(job, target, name, phase);
-        throw error;
-      }
-      target.steps[name] = { phase: 'done', value };
-      try {
-        await this.save(job);
-        await this.event(job, target, name, 'confirmed');
-      } catch {
-        throw new CliError('UNKNOWN', '远端步骤已完成，但本地回执保存失败，请勿重复提交。', { job_id: job.id, step: name });
-      }
-      return value;
-    } };
-  }
-
-  async run(id: string): Promise<PublishJob> {
-    return withFileLock(join(this.home, 'jobs', jobName(id) + '.lock'), async () => {
-      const job = await this.get(id);
-      // Tasks freeze both document bytes and local assets; editing a file requires a new plan.
-      if (digest(await readFile(job.source.file)) !== job.source.digest) throw new CliError('INPUT', '源文件已改变，请重新创建任务。');
-      for (const target of job.targets) {
-        for (const asset of [...target.article.assets, ...(target.article.cover ? [target.article.cover] : [])]) {
-          if (asset.path && digest(await readFile(asset.path)) !== asset.digest) throw new CliError('INPUT', '图片已改变，请重新创建任务：' + asset.path);
-        }
-      }
-      for (const target of job.targets) {
-        if (target.status === 'published' || target.status === 'submitted' || (job.intent === 'draft' && target.status === 'draft_saved')) continue;
-        const adapter = this.registry.get(target.platform);
-        if (adapter.driver !== target.driver || adapter.version !== target.version) throw new CliError('INPUT', '任务驱动版本已改变，请核对旧任务后新建计划。');
-        if (Object.values(target.steps).some(step => ['running', 'unknown', 'waiting_for_verification'].includes(step.phase))) {
-          target.status = 'unknown';
-          target.message = '存在结果未确认的写入。先执行 wm job refresh，不会自动重发。';
+        await this.event(job, target, name, 'started');
+        let value: T;
+        try { value = await action(); }
+        catch (error) {
+          let phase: StepRecord['phase'] = 'unknown';
+          if (error instanceof CliError && error.details?.outcome === 'rejected') phase = 'rejected';
+          if (error instanceof CliError && error.code === 'VERIFICATION') phase = 'waiting_for_verification';
+          target.steps[name] = { phase };
           await this.save(job);
-          continue;
+          await this.event(job, target, name, phase);
+          throw error;
         }
-        const operation = adapter.operations[job.intent];
-        if (!operation) throw new CliError('UNSUPPORTED', '此驱动不支持任务操作。');
-        const account = new AccountStore(this.home, target.platform, target.account);
+        target.steps[name] = { phase: 'done', value };
+        try { await this.save(job); await this.event(job, target, name, 'confirmed'); }
+        catch { throw new CliError('UNKNOWN', '远端步骤已完成，本地回执保存异常，请勿重复提交。', { job_id: job.id, step: name }); }
+        return value;
+      },
+    };
+  }
+  async run(id: string): Promise<PublishJob> {
+    return withFileLock(join(this.home, 'tasks', jobName(id) + '.lock'), async () => {
+      const job = await this.get(id);
+      // Validate all pending payloads before the first session or write, without rereading completed sources.
+      for (const target of job.targets) {
+        const platform = this.registry.get(target.identity.platformId);
+        const capability = this.registry.capability(platform.id, job.capabilityId);
+        if (capability.effect !== 'remote-write') throw new CliError('INPUT', '任务引用的能力不是写入能力。');
+        if (capability.successStates.some(state => state === target.status)) continue;
+        if (platform.driver.id !== target.driver.id || platform.driver.version !== target.driver.version) throw new CliError('INPUT', '任务驱动版本已改变，请先核对原任务。');
+        target.prepared = parseInput(capability.preparedSchema, target.prepared);
+        await capability.preflight(target.prepared);
+      }
+      for (const target of job.targets) {
+        const platform = this.registry.get(target.identity.platformId);
+        const capability = this.registry.capability(platform.id, job.capabilityId);
+        if (capability.effect !== 'remote-write') throw new CliError('INPUT', '任务引用的能力不是写入能力。');
+        if (capability.successStates.some(state => state === target.status)) continue;
+        if (uncertain(target.steps)) { target.status = 'unknown'; target.message = '存在未确认的写入，请先运行 wm job refresh。'; await this.save(job); continue; }
         try {
-          await account.lock(async () => {
-            if (!await account.profile()) throw new CliError('AUTH', '此目标尚未登录，请运行 wm auth login ' + adapter.id);
-            await account.verify(await adapter.status(account));
-            target.status = 'running';
-            delete target.message;
+          await this.accounts.use(target.identity, account => platform.withSession(account, async session => {
+            const availability = await session.probe(job.capabilityId);
+            if (availability.state === 'unavailable') throw new CliError('AUTH', availability.reason);
+            target.status = 'running'; delete target.message;
             await this.save(job);
-            const result = await operation.run(this.context(job, target, account), target.article);
-            target.status = result.status;
-            target.remote = result.remote;
-            target.message = result.message;
+            const context = this.context(job, target, account);
+            // The outer receipt protects even a custom capability which performs a single direct write.
+            const result = await context.step('capability.execute', async () => {
+              const result = await session.execute(job.capabilityId, target.prepared, context);
+              if (result.effect !== 'remote-write') throw new Error('Write capability returned a read result');
+              return result.value;
+            });
+            target.status = result.status; target.remote = result.remote; target.message = result.message; target.data = result.data;
             await this.save(job);
-          });
+          }));
         } catch (error) {
-          const steps = Object.values(target.steps);
-          const uncertain = steps.some(step => ['unknown', 'running'].includes(step.phase));
-          target.status = uncertain ? 'unknown' : 'rejected';
+          target.status = uncertain(target.steps) ? 'unknown' : 'rejected';
           if (error instanceof CliError && error.code === 'UNKNOWN') target.status = 'unknown';
           if (error instanceof CliError && error.code === 'VERIFICATION') target.status = 'waiting_for_verification';
           target.message = error instanceof Error ? error.message : String(error);
@@ -179,23 +157,35 @@ export class PublishingService {
       return job;
     });
   }
-
+  async invoke(platformId: string, alias: string, capabilityId: string, input: unknown, newCopy = false) {
+    const capability = this.registry.capability(platformId, capabilityId);
+    if (capability.effect === 'remote-write') return { effect: capability.effect, value: await this.run((await this.create(capabilityId, input, [platformId + ':' + alias], newCopy)).id) } as const;
+    const prepared = await capability.prepare(input);
+    const identity = await this.accounts.resolve(platformId, alias);
+    const value = await this.accounts.use(identity, account => this.registry.get(platformId).withSession(account, async session => {
+      const availability = await session.probe(capabilityId);
+      if (availability.state === 'unavailable') throw new CliError('AUTH', availability.reason);
+      return (await session.execute(capabilityId, prepared, readContext(account))).value;
+    }));
+    return { effect: 'read', value } as const;
+  }
   async refresh(id: string): Promise<PublishJob> {
-    return withFileLock(join(this.home, 'jobs', jobName(id) + '.lock'), async () => {
+    return withFileLock(join(this.home, 'tasks', jobName(id) + '.lock'), async () => {
       const job = await this.get(id);
       for (const target of job.targets) {
-        const adapter = this.registry.get(target.platform);
-        if (!target.remote || !adapter.inspect) continue;
-        const account = new AccountStore(this.home, target.platform, target.account);
-        await account.lock(async () => {
-          await account.verify(await adapter.status(account));
-          const result = await adapter.inspect!(account, target.remote!, target.article);
-          const uncertainPublish = job.intent === 'publish' && result.status === 'draft_saved' && Object.values(target.steps).some(step => ['running', 'unknown', 'waiting_for_verification'].includes(step.phase));
-          target.status = uncertainPublish ? 'unknown' : result.status;
-          target.message = result.message;
-          target.remote = result.remote;
-          await this.save(job);
-        });
+        const capability = this.registry.capability(target.identity.platformId, job.capabilityId);
+        if (!target.remote || capability.effect !== 'remote-write' || !capability.inspect) continue;
+        try {
+          const platform = this.registry.get(target.identity.platformId);
+          if (platform.driver.id !== target.driver.id || platform.driver.version !== target.driver.version) throw new CliError('INPUT', '回查所需驱动版本不匹配。');
+          target.prepared = parseInput(capability.preparedSchema, target.prepared);
+          await this.accounts.use(target.identity, account => this.registry.get(target.identity.platformId).withSession(account, async session => {
+            const result = await session.inspect(job.capabilityId, target.remote!, target.prepared, readContext(account));
+            target.status = uncertain(target.steps) && !capability.successStates.includes(result.status) ? 'unknown' : result.status;
+            target.remote = result.remote; target.message = result.message;
+            await this.save(job);
+          }));
+        } catch (error) { target.message = error instanceof Error ? error.message : String(error); await this.save(job); }
       }
       return job;
     });
