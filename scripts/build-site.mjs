@@ -8,12 +8,16 @@ const output = "site-dist";
 await rm(output, { recursive: true, force: true });
 await cp("site", output, { recursive: true });
 const schema = JSON.parse(execFileSync(process.execPath, ['dist/wm.js', 'schema', '--json'], { encoding: 'utf8', env: { ...process.env, WM_AUTO_INSTALL_SKILL: '0' } }));
-await writeFile(join(output, 'catalog.json'), JSON.stringify({ version: metadata.version, platforms: schema.data.platforms }));
+const catalog = JSON.stringify({ version: metadata.version, platforms: schema.data.platforms });
+const catalogDigest = createHash('sha256').update(catalog).digest('hex').slice(0, 12);
+const catalogFile = `catalog.${catalogDigest}.json`;
+await writeFile(join(output, catalogFile), catalog);
 for (const name of ["index.html", "app.js"]) {
   const path = join(output, name);
   const content = (await readFile(path, "utf8"))
     .replaceAll("{{PACKAGE_NAME}}", metadata.name)
-    .replaceAll("{{VERSION}}", metadata.version);
+    .replaceAll("{{VERSION}}", metadata.version)
+    .replaceAll("./catalog.json", "./" + catalogFile);
   await writeFile(path, content);
 }
 // Tie HTML to its exact assets so a cached old script cannot operate a new page structure.
