@@ -16,6 +16,17 @@ wm 是统一入口。使用 `wm platform list --json` 和 `wm schema --json` 发
 
 其他平台以注册能力及 schema 为准。平台知识分开维护，账号、任务和错误处理共用 wm。
 
+正文与配图在发布前通过公共 `wm content` 命令准备，适用于所有已接入平台，无需平台账号：
+
+~~~bash
+wm content write article.md --input source.md --json
+wm content screenshot https://example.com --output assets/website.png --json
+wm content diagram-schema --json
+wm content diagram architecture.json --output assets/architecture.png --json
+~~~
+
+截图支持 `--selector` 截取指定元素和 `--full-page` 截取整页；架构图输入以 `diagram-schema` 输出为准，不自行复制维护 schema。输出文件不覆盖已有文件，回执包含路径、字节数和 SHA-256。先准备正文与图片，再建立发布计划，让计划捕获完整素材快照。图片按目标平台的内容格式引用，封面及平台限制仍以该平台能力为准；公共素材命令不代表各平台拥有相同的发表能力。
+
 账号未登录时运行 `wm auth login PLATFORM --account main`。CLI 管理浏览器，用户完成扫码或平台强制验证；不要索取、读取或展示 Cookie、Token、密码和验证码。
 
 根据用户指定的账号与操作调用命令，用 `wm account list --json` 选择本机绑定，用 `wm article preview FILE --platform PLATFORM --json` 检查内容。CLI 在每次执行时自动核验在线身份；需要诊断认证时再调用 auth status，避免为同一次写入重复启动验证会话。平台差异来自命令 schema、能力与输入校验；必要时准备平台版本内容，不静默截断原文。
