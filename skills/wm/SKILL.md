@@ -1,15 +1,25 @@
 ---
 name: wm
-description: 通过 wm CLI 管理自媒体平台账号、预览内容、保存草稿、发布文章并核对执行结果。用于用户要求多平台发文、平台草稿或自媒体内容管理。
+description: 通过 wm CLI 管理自媒体平台账号、草稿、发布和回执；用于公众号、小红书、掘金或其他已接入平台的内容管理与多平台发文。
 ---
 
 # 多平台内容管理
 
 wm 是统一入口。使用 `wm platform list --json` 和 `wm schema --json` 发现已实现的平台及命令，再用 `wm platform capabilities PLATFORM --account main --json` 核对目标能力。未声明的能力不编造，也不根据其他平台的流程推断。
 
+根据目标平台按需加载独立指导，不将某个平台的字段或限制套到其他平台：
+
+- [微信公众号](references/wechat.md)：排版、正文图片、封面、草稿回读及发表验证。
+- [小红书](references/xiaohongshu.md)：图文、短文、正式话题、可见范围与审核回查。
+- [掘金](references/juejin.md)：Markdown、分类标签、摘要和专栏。
+
+其他平台以注册能力及 schema 为准。平台知识分开维护，账号、任务和错误处理共用 wm。
+
 账号未登录时运行 `wm auth login PLATFORM --account main`。CLI 管理浏览器，用户完成扫码或平台强制验证；不要索取、读取或展示 Cookie、Token、密码和验证码。
 
-根据用户指定的账号与操作调用命令。写入前用 `wm auth status PLATFORM --json` 核对身份，用 `wm article preview FILE --platform PLATFORM --json` 检查内容。平台差异来自命令 schema、能力与输入校验；必要时准备平台版本内容，不静默截断原文。
+根据用户指定的账号与操作调用命令，用 `wm account list --json` 选择本机绑定，用 `wm article preview FILE --platform PLATFORM --json` 检查内容。CLI 在每次执行时自动核验在线身份；需要诊断认证时再调用 auth status，避免为同一次写入重复启动验证会话。平台差异来自命令 schema、能力与输入校验；必要时准备平台版本内容，不静默截断原文。
+
+平台选项使用 frontmatter 的 platforms.PLATFORM 或 --options JSON 文件。自定义能力通过 wm platform exec PLATFORM CAPABILITY --input FILE --json 调用，同样检查副作用范围。新账号绑定直接通过登录建立，不读取或迁移旧布局。
 
 常用命令：
 

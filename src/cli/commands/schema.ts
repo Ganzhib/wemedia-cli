@@ -1,6 +1,4 @@
 import type { Command } from 'commander';
-import { CliError } from '../../shared/errors.js';
-import type { CommandContext } from '../context.js';
 
 function describeOptions(command: Command) {
   return command.options.filter(option => !option.hidden).map(option => ({
@@ -34,17 +32,4 @@ export function describeCommand(command: Command): CommandDescription {
     options: describeOptions(command),
     commands: command.commands.map(describeCommand),
   };
-}
-
-export function registerSchema(context: CommandContext): void {
-  context.program.command('schema [path...]').description('查询命令树、参数、选项和枚举值，供 Agent 按需发现能力')
-    .action((path: string[] = []) => {
-      let command = context.program;
-      for (const name of path) {
-        const child = command.commands.find(child => child.name() === name);
-        if (!child) throw new CliError('INPUT', `找不到命令路径：${path.join(' ')}`);
-        command = child;
-      }
-      context.emit({ command: describeCommand(command), global_options: describeOptions(context.program) });
-    });
 }

@@ -2,7 +2,6 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, errors, type BrowserContext, type Page } from 'playwright';
 import { installBrowser } from './browser.js';
-import type { AccountStore } from './accounts.js';
 import { CliError } from '../shared/errors.js';
 
 export async function navigatePlatform(page: Page, url: string): Promise<void> {
@@ -36,7 +35,7 @@ export async function ensureBrowser(): Promise<void> {
   await preparation;
 }
 
-export async function withAccountBrowser<T>(account: AccountStore, action: (context: BrowserContext, page: Page) => Promise<T>): Promise<T> {
+export async function withAccountBrowser<T>(account: { directory: string }, action: (context: BrowserContext, page: Page) => Promise<T>): Promise<T> {
   await ensureBrowser();
   const context = await chromium.launchPersistentContext(join(account.directory, 'browser-profile'), {
     headless: false, viewport: { width: 1440, height: 1000 },

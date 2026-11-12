@@ -1,56 +1,38 @@
-import type { AccountStore } from '../runtime/accounts.js';
+import { z } from 'zod';
 
-export type Intent = 'draft' | 'publish';
-export interface AccountProfile { id: string; name: string }
-export interface Asset { source: string; path?: string; digest?: string; size?: number }
-export interface ArticleDocument {
-  file: string;
-  sourceDigest: string;
-  markdown: string;
-  metadata: Record<string, unknown>;
-  platforms: Record<string, Record<string, unknown>>;
-}
-export interface PreparedArticle {
-  title: string;
-  body: string;
-  format: 'markdown' | 'html' | 'image-text';
-  assets: Asset[];
-  cover?: Asset;
-  options: Record<string, unknown>;
-}
-export interface RemoteReference {
-  kind: 'draft' | 'article' | 'submission';
-  id?: string;
-  url?: string;
-}
-export type Outcome = 'draft_saved' | 'submitted' | 'published' | 'rejected' | 'unknown' | 'waiting_for_verification';
-export interface OperationResult {
-  status: Outcome;
-  remote?: RemoteReference;
-  message?: string;
-}
+export const accountProfileSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
+export type AccountProfile = z.infer<typeof accountProfileSchema>;
+export const accountIdentitySchema = z.object({
+  bindingId: z.string().regex(/^[a-f0-9]{32}$/), platformId: z.string().min(1), accountId: z.string().min(1),
+});
+export type AccountIdentity = z.infer<typeof accountIdentitySchema>;
+export const accountBindingSchema = z.object({
+  schema: z.literal(2), identity: accountIdentitySchema, name: z.string(), sessionId: z.uuid(),
+});
+export type AccountBinding = z.infer<typeof accountBindingSchema>;
+export interface AccountScope { identity: AccountIdentity; directory: string }
+
+export const remoteReferenceSchema = z.object({
+  kind: z.string().min(1), id: z.string().min(1), url: z.string().optional(),
+  selector: z.record(z.string(), z.string()).optional(),
+});
+export type RemoteReference = z.infer<typeof remoteReferenceSchema>;
+export const outcomeSchema = z.enum(['completed', 'draft_saved', 'submitted', 'published', 'rejected', 'unknown', 'waiting_for_verification']);
+export const operationResultSchema = z.object({
+  status: outcomeSchema, remote: remoteReferenceSchema.optional(), message: z.string().optional(), data: z.json().optional(),
+});
+export type OperationResult = z.infer<typeof operationResultSchema>;
 export interface OperationContext {
-  account: AccountStore;
+  account: AccountScope;
   step<T>(name: string, action: () => Promise<T>): Promise<T>;
   remember(remote: RemoteReference): Promise<void>;
 }
-export interface PlatformOperation {
-  description: string;
-  run(context: OperationContext, article: PreparedArticle): Promise<OperationResult>;
+export interface CapabilityContext<S> extends OperationContext { session: S }
+export interface CapabilityAvailability {
+  state: 'available' | 'unavailable' | 'unknown'; reason: string;
 }
-export interface PlatformQuery {
-  description: string;
-  run(account: AccountStore, limit: number): Promise<unknown>;
+export interface CapabilityMetadata {
+  id: string; description: string;
+  acceptance: { offline: boolean; liveRead: boolean; liveWrite: boolean };
 }
-export interface PlatformAdapter {
-  id: string;
-  name: string;
-  driver: string;
-  version: string;
-  operations: Partial<Record<Intent, PlatformOperation>>;
-  lists: Partial<Record<'draft' | 'article', PlatformQuery>>;
-  prepare(document: ArticleDocument, options: Record<string, unknown>): Promise<PreparedArticle>;
-  login(account: AccountStore): Promise<AccountProfile>;
-  status(account: AccountStore): Promise<AccountProfile>;
-  inspect?(account: AccountStore, remote: RemoteReference, expected?: PreparedArticle): Promise<OperationResult>;
-}
+export interface SessionProfile { profile: AccountProfile }

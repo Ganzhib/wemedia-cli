@@ -32,7 +32,7 @@ export class DraftService {
     if (!category) throw new CliError('INPUT', '请提供 --category 或 frontmatter.category。');
     const categories = await this.client.categories();
     const matched = categories.find(entry => [entry.category_id, entry.category_name, entry.category_url].includes(category));
-    if (!matched) throw new CliError('INPUT', `找不到分类「${category}」，请运行 juejin category list。`);
+    if (!matched) throw new CliError('INPUT', `找不到分类「${category}」，请查询 juejin.category.list 能力。`);
     const names = options.tags ?? document.metadata.tags ?? existing?.tag_ids;
     if (!names?.length) throw new CliError('INPUT', '至少需要一个标签（--tags 或 frontmatter.tags）。');
     const tagIds: string[] = [];
@@ -40,7 +40,7 @@ export class DraftService {
       if (/^\d+$/.test(name)) { tagIds.push(name); continue; }
       const tags = await this.client.findTags(name, true);
       const tag = tags.find(tag => tag.tag_name.toLowerCase() === name.toLowerCase());
-      if (!tag) throw new CliError('INPUT', `未找到精确标签「${name}」，请运行 juejin tag search。`);
+      if (!tag) throw new CliError('INPUT', `未找到精确标签「${name}」，请查询 juejin.tag.search 能力。`);
       tagIds.push(tag.tag_id);
     }
     const cover = options.cover ?? document.metadata.cover ?? existing?.cover_image ?? '';

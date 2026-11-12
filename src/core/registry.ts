@@ -1,27 +1,33 @@
-import type { PlatformAdapter } from './types.js';
+import { z } from 'zod';
+import type { Platform } from './platform.js';
 import { CliError } from '../shared/errors.js';
 
 export class PlatformRegistry {
-  private readonly adapters = new Map<string, PlatformAdapter>();
-
-  constructor(platforms: PlatformAdapter[]) {
+  private readonly platforms = new Map<string, Platform>();
+  constructor(platforms: Platform[]) {
     for (const platform of platforms) {
-      if (this.adapters.has(platform.id)) throw new Error('Duplicate platform: ' + platform.id);
-      this.adapters.set(platform.id, platform);
+      if (this.platforms.has(platform.id)) throw new Error('Duplicate platform: ' + platform.id);
+      this.platforms.set(platform.id, platform);
     }
   }
-
-  get(id: string): PlatformAdapter {
-    const adapter = this.adapters.get(id);
-    if (!adapter) throw new CliError('INPUT', '未知平台：' + id, { platforms: [...this.adapters.keys()] });
-    return adapter;
+  get(id: string): Platform {
+    const platform = this.platforms.get(id);
+    if (!platform) throw new CliError('INPUT', '未知平台：' + id, { platforms: [...this.platforms.keys()] });
+    return platform;
   }
-
-  describe() {
-    return [...this.adapters.values()].map(adapter => ({
-      id: adapter.id, name: adapter.name, driver: adapter.driver, version: adapter.version,
-      operations: Object.entries(adapter.operations).map(([id, operation]) => ({ id, description: operation.description })),
-      lists: Object.entries(adapter.lists).map(([id, query]) => ({ id, description: query.description })),
+  capability(platformId: string, capabilityId: string) {
+    const capability = this.get(platformId).capabilities.get(capabilityId);
+    if (!capability) throw new CliError('UNSUPPORTED', '平台未实现此能力：' + capabilityId);
+    return capability;
+  }
+  describe(platformId?: string) {
+    const platforms = platformId ? [this.get(platformId)] : [...this.platforms.values()];
+    return platforms.map(platform => ({
+      id: platform.id, name: platform.name, driver: platform.driver,
+      capabilities: [...platform.capabilities.values()].map(capability => ({
+        id: capability.id, description: capability.description, effect: capability.effect, acceptance: capability.acceptance,
+        input_schema: z.toJSONSchema(capability.inputSchema, { io: 'input' }), output_schema: z.toJSONSchema(capability.outputSchema),
+      })),
     }));
   }
 }

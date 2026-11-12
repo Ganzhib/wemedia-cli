@@ -1,25 +1,42 @@
 # AI 与 SDK 使用
 
-AI 优先读取 wm schema 和 platform list。未声明的操作不尝试拼接私有接口。用户只授权存草稿时不发表；用户已明确给出文章、账号和发表目标时，不重复请求同一授权。
+先查询 wm platform list 和 wm schema，再按能力的实际输入输出调用。平台特性由能力 schema 和 wm Skill 的平台参考文档表达。通用命令不固定某个平台的字段。
 
-```bash
-wm schema article publish --json
-wm platform list --json
-wm auth status wechat --json
-wm article preview article.md --platform wechat --json
+~~~bash
+wm account list --json
+wm platform capabilities wechat --account main --json
+wm article preview article.md --platform wechat --capability draft.create --json
 wm draft create article.md --platform wechat --json
-```
+wm platform exec juejin juejin.category.list --json
+wm platform exec juejin juejin.tag.search --input tag-query.json --json
+~~~
 
-JSON 成功结果位于 stdout 的 data。失败使用非零退出码，结构化错误位于 stderr。任务失败的 details 包含 job_id 和目标完成阶段。交互式登录或管理员验证会在 stderr 提示人工动作，凭据不会回显。
+tag-query.json 可包含 {"keyword":"TypeScript"}。平台选项放在 frontmatter 的 platforms.PLATFORM 或通过 --options FILE 传入 JSON。JSON 成功结果在 stdout 的 data，失败结果在 stderr，使用非零退出码。
 
-```ts
+用户只授权存草稿时不发表。用户已经明确内容、账号和发表目标后，不重复请求同一授权。CLI 执行时在同一个会话内自动验证平台账号，不必为每次写入额外启动 auth status。
+
+## SDK
+
+~~~ts
 import { PublishingService, defaultRegistry } from '@ganzhibin/wemedia-cli';
 
-const service = new PublishingService('/absolute/path/to/wemedia-home', defaultRegistry());
-const plan = await service.create('/absolute/path/article.md', ['wechat:main'], 'draft');
-const result = await service.run(plan.id);
-```
+const service = new PublishingService('/absolute/path/wemedia-home', defaultRegistry());
+const job = await service.create(
+  'draft.create',
+  { file: '/absolute/path/article.md', options: { author: '作者' } },
+  ['wechat:main'],
+);
+const result = await service.run(job.id);
+~~~
 
-SDK 调用返回每个平台的状态；CLI 会将未完成目标映射为非零退出码。SDK 使用者也必须检查目标状态。不要捕获写入异常后立刻重试，先查询 job get / refresh。新平台实现遵守同一锁、步骤与回执契约。
+账号需先通过 wm auth login 建立。create 在写入前准备所有目标，绑定真实身份；run 不从别名重新选择账号。SDK 使用者检查每个目标的状态，不能把函数返回当作所有平台均已发布。
 
-upstream 的 JuejinClient、DraftService 等导出保留用于底层协议访问；需要完整跨平台生命周期时使用 PublishingService。
+读取或通用能力调用使用 service.invoke(platformId, alias, capabilityId, input)。返回 effect 区分只读值和写入任务，写入仍经过相同的账号锁、探测及持久化回执。
+
+## 平台实现
+
+definePlatform 提供真实登录和 withSession 生命周期。readCapability、writeCapability 从输入、输出和准备产物 schema 推导处理器参数。平台的具体会话对象在工厂内部保留类型，公共服务只使用受验证的能力会话。
+
+读取处理器只接收 account、session 和已经解析的输入；写入处理器还接收 step 和 remember，用于记录平台内部阶段与远端引用。注册时必须提供实际处理器，公共服务不会生成空实现。
+
+公开 SDK 只导出新契约。旧单平台命令树与转接导出已删除，旧任务和账号文件不参与新流程。

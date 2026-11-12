@@ -1,11 +1,15 @@
+import { operationResultSchema } from '../../core/types.js';
 import { JSDOM } from 'jsdom';
 import createDOMPurify from 'dompurify';
 import { errors, type BrowserContext, type Page } from 'playwright';
-import type { AccountProfile, ArticleDocument, OperationContext, OperationResult, PlatformAdapter, PreparedArticle, RemoteReference } from '../../core/types.js';
-import { assetFrom, documentAssets, documentTitle, textOption } from '../../content/document.js';
+import { z } from 'zod';
+import type { AccountProfile, CapabilityContext, OperationResult, RemoteReference } from '../../core/types.js';
+import { definePlatform } from '../../core/platform.js';
+import { readCapability, writeCapability } from '../../core/capability.js';
+import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
+import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preflightArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
 import { omitRepeatedTitle } from '../../content/markdown.js';
 import { withAccountBrowser, navigatePlatform, reloadPlatform } from '../../runtime/managed-browser.js';
-import type { AccountStore } from '../../runtime/accounts.js';
 import { CliError } from '../../shared/errors.js';
 
 const HOME = 'https://mp.weixin.qq.com/';
@@ -32,25 +36,33 @@ export async function wechatProfile(page: Page, login = false): Promise<AccountP
   return { id: String(profile.id), name: profile.name };
 }
 
-export async function prepareWechat(document: ArticleDocument, options: Record<string, unknown>): Promise<PreparedArticle> {
+export const wechatOptionsSchema = z.object({
+  title: z.string().meta({ maxCodePoints: 64 }).optional(), author: z.string().optional(), summary: z.string().optional(), brief: z.string().optional(),
+  cover: z.string().optional(), images: z.array(z.string()).optional(), theme: z.string().optional(),
+});
+const preparedSchema = preparedArticleSchema.extend({ options: z.object({ author: z.string(), summary: z.string() }) });
+type WechatArticle = z.infer<typeof preparedSchema>;
+interface WechatSession { profile: AccountProfile; browser: BrowserContext; page: Page }
+
+export async function prepareWechat(document: ArticleDocument, options: z.infer<typeof wechatOptionsSchema>): Promise<WechatArticle> {
   const title = documentTitle(document, options);
   if (Array.from(title).length > 64) throw new CliError('INPUT', '公众号标题最多 64 字，不会自动截断。');
   const assets = await documentAssets(document, options);
   if (assets.some(asset => !asset.path)) throw new CliError('INPUT', '公众号正文图片请先保存到本地，以便通过编辑器上传。');
-  const coverSource = textOption(options, 'cover', assets[0]?.source ?? '');
+  const coverSource = options.cover ?? assets[0]?.source;
   if (!coverSource) throw new CliError('INPUT', '请提供公众号封面或至少一张正文图片。');
   const cover = await assetFrom(coverSource, document);
   if (!cover.path) throw new CliError('INPUT', '公众号封面需要本地图片。');
   const { renderStyledContent } = await import('@wenyan-md/core/wrapper');
   const rendered = await renderStyledContent(omitRepeatedTitle(document.markdown, title), {
-    themeId: textOption(options, 'theme', 'default'), hlThemeId: 'github', isMacStyle: false, isAddFootnote: true,
+    themeId: options.theme ?? 'default', hlThemeId: 'github', isMacStyle: false, isAddFootnote: true,
   });
   // Source HTML enters an authenticated editor. Strip active content before preview or insertion.
   const window = new JSDOM('').window;
   const body = createDOMPurify(window).sanitize(rendered, { FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form'] });
   window.close();
-  return { title, body, format: 'html', assets, cover, options: {
-    author: textOption(options, 'author'), summary: textOption(options, 'summary', textOption(options, 'brief')),
+  return { title, body, format: 'text/html', assets, cover, options: {
+    author: options.author ?? '', summary: options.summary ?? options.brief ?? '',
   } };
 }
 
@@ -82,7 +94,7 @@ export async function insertWechatHtml(page: Page, html: string): Promise<void> 
   if (!inserted) throw new CliError('PROTOCOL', '公众号正文未进入编辑器，停止保存。');
 }
 
-function placeholderHtml(article: PreparedArticle): { html: string; images: { marker: string; path: string }[] } {
+function placeholderHtml(article: WechatArticle): { html: string; images: { marker: string; path: string }[] } {
   const dom = new JSDOM(article.body);
   const images: { marker: string; path: string }[] = [];
   for (const image of dom.window.document.querySelectorAll('img')) {
@@ -151,10 +163,10 @@ export async function saveWechatDraft(page: Page): Promise<RemoteReference> {
   return { kind: 'draft', id };
 }
 
-export async function composeWechatDraft(context: BrowserContext, home: Page, article: PreparedArticle, onSaved?: (remote: RemoteReference) => Promise<void>): Promise<RemoteReference> {
+export async function composeWechatDraft(context: BrowserContext, home: Page, article: WechatArticle, onSaved?: (remote: RemoteReference) => Promise<void>): Promise<RemoteReference> {
   const page = await newEditor(context, home);
   await page.locator('#title').fill(article.title);
-  if (article.options.author) await page.locator('#author').fill(article.options.author as string);
+  if (article.options.author) await page.locator('#author').fill(article.options.author);
   const prepared = placeholderHtml(article);
   await insertWechatHtml(page, prepared.html);
   const uploaded = new Map<string, string>();
@@ -186,7 +198,7 @@ export async function composeWechatDraft(context: BrowserContext, home: Page, ar
       editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
     }, cover);
   }
-  if (article.options.summary) await page.locator('#js_description').fill(article.options.summary as string);
+  if (article.options.summary) await page.locator('#js_description').fill(article.options.summary);
   if (await page.locator('#title').inputValue() !== article.title) throw new CliError('PROTOCOL', '正文处理改变了标题，停止保存。');
   const saved = await saveWechatDraft(page);
   await onSaved?.(saved);
@@ -195,7 +207,7 @@ export async function composeWechatDraft(context: BrowserContext, home: Page, ar
   return saved;
 }
 
-async function verifyWechatDraft(page: Page, article: PreparedArticle): Promise<void> {
+async function verifyWechatDraft(page: Page, article: WechatArticle): Promise<void> {
   const expected = new JSDOM(article.body);
   const normalize = (text: string) => text.normalize('NFC').replace(/\s+/g, '');
   const expectedText = normalize(expected.window.document.body.textContent!);
@@ -232,14 +244,12 @@ export async function publishWechatDraft(page: Page, draft: RemoteReference): Pr
   return { status: 'published', remote: { kind: 'article', id: draft.id, ...(url ? { url } : {}) } };
 }
 
-async function writeWechat(context: OperationContext, article: PreparedArticle, publish: boolean): Promise<OperationResult> {
-  return withAccountBrowser(context.account, async (browser, page) => {
-    await context.account.verify(await wechatProfile(page));
-    const draft = await context.step('draft.create', () => composeWechatDraft(browser, page, article, remote => context.remember(remote)));
-    await context.remember(draft);
-    if (!publish) return { status: 'draft_saved', remote: draft };
-    return context.step('article.publish', () => publishWechatDraft(page, draft));
-  });
+async function writeWechat(context: CapabilityContext<WechatSession>, article: WechatArticle, publish: boolean): Promise<OperationResult> {
+  const { browser, page } = context.session;
+  const draft = await context.step('draft.create', () => composeWechatDraft(browser, page, article, remote => context.remember(remote)));
+  await context.remember(draft);
+  if (!publish) return { status: 'draft_saved', remote: draft };
+  return context.step('article.publish', () => publishWechatDraft(page, draft));
 }
 
 interface WechatDraftItem { app_id: number; title: string }
@@ -264,8 +274,7 @@ export async function readWechatList(page: Page, kind: 'draft' | 'article', limi
   }).slice(0, limit);
 }
 
-async function listWechat(page: Page, account: AccountStore, kind: 'draft' | 'article', limit: number) {
-  await account.verify(await wechatProfile(page));
+async function listWechat(page: Page, kind: 'draft' | 'article', limit: number) {
   const name = kind === 'draft' ? '草稿箱' : '发表记录';
   const href = await page.getByRole('link', { name, exact: true }).getAttribute('href');
   if (!href) throw new CliError('PROTOCOL', '公众号未提供列表导航入口。');
@@ -276,31 +285,39 @@ async function listWechat(page: Page, account: AccountStore, kind: 'draft' | 'ar
   return readWechatList(page, kind, limit);
 }
 
-export function createWechatAdapter(): PlatformAdapter {
-  return {
-    id: 'wechat', name: '微信公众号', driver: 'wechat.browser', version: '1',
-    operations: {
-      draft: { description: '排版、上传图片、设置封面并保存公众号草稿，随后回读', run: (context, article) => writeWechat(context, article, false) },
-      publish: { description: '创建草稿并正式发表；平台要求扫码时等待管理员验证，不包含群发', run: (context, article) => writeWechat(context, article, true) },
-    },
-    lists: {
-      draft: { description: '查询公众号草稿箱', run: (account, limit) => withAccountBrowser(account, (_browser, page) => listWechat(page, account, 'draft', limit)) },
-      article: { description: '查询公众号发表记录', run: (account, limit) => withAccountBrowser(account, (_browser, page) => listWechat(page, account, 'article', limit)) },
-    },
-    prepare: prepareWechat,
-    login: account => withAccountBrowser(account, (_browser, page) => wechatProfile(page, true)),
-    status: account => withAccountBrowser(account, async (_browser, page) => account.verify(await wechatProfile(page))),
-    inspect: (account, remote, expected) => withAccountBrowser(account, async (_browser, page) => {
-      if (remote.kind === 'draft' && expected) {
-        await account.verify(await wechatProfile(page));
-        await navigatePlatform(page, editorUrl(page, remote.id!));
-        await verifyWechatDraft(page, expected);
+export function createWechatPlatform(dependencies: { withBrowser?: typeof withAccountBrowser } = {}) {
+  const browser = dependencies.withBrowser ?? withAccountBrowser;
+  const acceptance = { offline: true, liveRead: false, liveWrite: false };
+  const writing = (id: string, description: string, publish: boolean) => writeCapability<WechatSession>()({
+    id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(wechatOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
+    prepare: raw => prepareArticle(raw, 'wechat', wechatOptionsSchema, prepareWechat), preflight: preflightArticle,
+    execute: (context, article) => writeWechat(context, article, publish),
+    inspect: async ({ session }, remote, expected) => {
+      if (remote.kind === 'draft') {
+        await navigatePlatform(session.page, editorUrl(session.page, remote.id));
+        await verifyWechatDraft(session.page, expected);
         return { status: 'draft_saved', remote };
       }
-      const articles = await listWechat(page, account, remote.kind === 'draft' ? 'draft' : 'article', 100);
+      const articles = await listWechat(session.page, 'article', 100);
       const article = articles.find(article => article.id === remote.id);
       if (!article) return { status: 'unknown', remote, message: '当前列表未返回此 ID，不能推断发布或删除成功。' };
-      return { status: remote.kind === 'draft' ? 'draft_saved' : 'published', remote: { ...remote, ...(article.url ? { url: article.url } : {}) } };
-    }),
-  };
+      return { status: 'published', remote: { ...remote, ...(article.url ? { url: article.url } : {}) } };
+    },
+  });
+  return definePlatform<WechatSession>({
+    id: 'wechat', name: '微信公众号', driver: { id: 'wechat.browser', version: '2' },
+    login: directory => browser({ directory }, (_context, page) => wechatProfile(page, true)),
+    withSession: (account, action) => browser(account, async (context, page) => action({ profile: await wechatProfile(page), browser: context, page })),
+    capabilities: [
+      writing('draft.create', '排版、上传正文图片、设置封面、保存并回读草稿', false),
+      writing('content.publish', '正式发表；平台要求时等待管理员扫码，不包含群发', true),
+      ...(['draft', 'article'] as const).map(kind => readCapability<WechatSession>()({
+        id: kind + '.list', description: kind === 'draft' ? '查询公众号草稿箱' : '查询公众号发表记录', acceptance,
+        input: listInputSchema, output: resourceListSchema,
+        execute: async ({ session }, input) => ({ items: (await listWechat(session.page, kind, input.limit)).map(article => ({
+          resource: { kind, id: article.id, ...(article.url ? { url: article.url } : {}), ...(article.item_index !== undefined ? { selector: { item_index: String(article.item_index) } } : {}) }, title: article.title,
+        })) }),
+      })),
+    ],
+  });
 }

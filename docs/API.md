@@ -1,5 +1,7 @@
 # 接口依据与验证记录
 
+当前 wm 能力通过 `wm schema --json` 与 `wm platform list --json` 查询；以下保留掘金底层协议的历史依据，不是通用核心的接口全集。
+
 记录日期：2026-11-11。以下是掘金网页接口，不是平台承诺兼容的开放 SDK。
 
 ## 公开读取
@@ -16,7 +18,7 @@
 | POST | `/content_api/v1/column/self_center_list` | `user_id`、`audit_status:2`、`cursor`、`limit` |
 | POST | `/content_api/v1/column/articles_cursor` | `column_id`、`cursor`、`limit`、`sort:0` |
 
-`npm run smoke` 对上面这些接口执行只读验证。分页命令返回服务端 cursor / has_more；标签名称搜索按返回游标翻页。
+`npm run smoke` 当前验证本地平台发现与能力 schema，不访问这些历史接口。分页命令返回服务端 cursor / has_more；标签名称搜索按返回游标翻页。
 
 文章详情当前不能只传 `article_id`，否则返回参数错误。网页 preload 请求的 `req_from:0` 会返回 Markdown；`req_from:1` 在本次验证中仅返回元数据，正文为空。CLI 使用已验证的 preload 请求，并设置 `forbid_count:true` 避免查询增加阅读计数。
 

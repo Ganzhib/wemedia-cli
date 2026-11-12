@@ -1,16 +1,12 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Cookie } from 'playwright';
+import { z } from 'zod';
+import { parseInput } from '../../core/capability.js';
 import { CliError } from '../../shared/errors.js';
 import { JuejinHttp } from './http.js';
-import { withFileLock } from '../../runtime/storage.js';
-
-export function defaultHome(): string {
-  return process.env.JUEJIN_HOME ?? join(homedir(), '.config', 'juejin-cli');
-}
 
 export function cookieHeader(cookies: Cookie[]): string {
   return cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
@@ -24,18 +20,17 @@ export interface UserProfile { user_id: string; user_name: string }
 
 export class SessionStore {
   readonly path: string;
-  constructor(readonly home = defaultHome()) {
+  constructor(readonly home: string) {
     this.path = join(home, 'session.json');
   }
 
-  async load(required = true): Promise<Cookie[]> {
+  async load(): Promise<Cookie[]> {
     let content: string;
     try {
       content = await readFile(this.path, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      if (required) throw new CliError('AUTH', '尚未登录，请运行 juejin auth login。');
-      return [];
+      throw new CliError('AUTH', '尚未登录，请运行 wm auth login juejin。');
     }
     return parseCookies(content);
   }
@@ -52,38 +47,24 @@ export class SessionStore {
   }
 
   async clear(): Promise<void> { await rm(this.path, { force: true }); }
-
-  withWriteLock<T>(action: () => Promise<T>): Promise<T> {
-    return withFileLock(join(this.home, 'write.lock'), action);
-  }
-
 }
 
+const cookiesSchema = z.array(z.object({
+  name: z.string(), value: z.string(), domain: z.string(), path: z.string(), expires: z.number(),
+  httpOnly: z.boolean(), secure: z.boolean(), sameSite: z.enum(['Strict', 'Lax', 'None']),
+  partitionKey: z.string().optional(),
+}));
+
 export function parseCookies(content: string): Cookie[] {
-  let source: unknown;
-  try { source = JSON.parse(content); }
-  catch { throw new CliError('INPUT', '会话文件必须为 Playwright cookies 数组或 storageState JSON。'); }
-  const cookies = Array.isArray(source) ? source : (source as { cookies?: unknown } | null)?.cookies;
-  if (!Array.isArray(cookies)) throw new CliError('INPUT', '会话文件缺少 cookies 数组。');
-  const result: Cookie[] = [];
+  let value: unknown;
+  try { value = JSON.parse(content); }
+  catch { throw new CliError('INPUT', '会话文件必须为有效的 Cookie 数组 JSON。'); }
+  const cookies = parseInput(cookiesSchema, value).filter(cookie => isJuejinDomain(cookie.domain) && (cookie.expires <= 0 || cookie.expires > Date.now() / 1000));
   for (const cookie of cookies) {
-    // Imported files are untrusted input; only platform cookies may reach the API host.
-    if (typeof cookie?.name !== 'string' || typeof cookie.value !== 'string' || typeof cookie.domain !== 'string') {
-      throw new CliError('INPUT', 'Cookie 必须包含 name、value、domain 字符串。');
-    }
-    if (!isJuejinDomain(cookie.domain)) continue;
     if (/[\r\n;]/.test(cookie.name) || /[\r\n;]/.test(cookie.value)) throw new CliError('INPUT', 'Cookie 含非法字符。');
-    if (cookie.expires > 0 && cookie.expires <= Date.now() / 1000) continue;
-    result.push({
-      name: cookie.name, value: cookie.value, domain: cookie.domain,
-      path: cookie.path ?? '/', expires: cookie.expires ?? -1,
-      httpOnly: cookie.httpOnly ?? false, secure: cookie.secure ?? true, sameSite: cookie.sameSite ?? 'Lax',
-    });
   }
-  if (!result.some(cookie => cookie.name === 'sessionid' || cookie.name === 'sessionid_ss')) {
-    throw new CliError('AUTH', '未找到有效的掘金 sessionid，请重新登录。');
-  }
-  return result;
+  if (!cookies.some(cookie => cookie.name === 'sessionid' || cookie.name === 'sessionid_ss')) throw new CliError('AUTH', '未找到有效的掘金会话，请重新登录。');
+  return cookies;
 }
 
 export async function verifySession(cookies: Cookie[]): Promise<UserProfile> {
