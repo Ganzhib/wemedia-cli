@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, access, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +11,7 @@ const skills = join(directory, 'skills');
 const env = { ...process.env, WM_SKILLS_DIR: skills, WM_AUTO_INSTALL_SKILL: '1', JUEJIN_AUTO_UPDATE: '0', npm_config_registry: 'https://registry.npmjs.org/' };
 function run(args) { return execFileSync(process.execPath, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }); }
 try {
+  if (process.platform !== 'win32') assert.ok((await stat(new URL('../dist/wm.js', import.meta.url))).mode & 0o111, 'Rebuilding a linked CLI must preserve execute permissions');
   const [packed] = JSON.parse(run([npm, 'pack', '--json', '--ignore-scripts', '--pack-destination', directory]));
   assert.equal(packed.name, '@ganzhibin/wemedia-cli');
   const paths = new Set(packed.files.map(file => file.path));
