@@ -1,4 +1,12 @@
-# juejin-cli
+# wemedia-cli
+
+面向 AI Agent 的多平台文章发布 CLI，规划使用 `wm` 命令。首批接入掘金、小红书和微信公众号，用户完成登录后由 CLI 处理日常后台操作。
+
+当前分支处于开源调研与架构设计阶段，代码仍为 juejin-cli 基线，`wm` 尚未实现。设计与验证记录见 [多平台架构](docs/MULTIPLATFORM_ARCHITECTURE.md) 和 [平台调研](docs/PLATFORM_RESEARCH.md)。
+
+以下保留上游使用说明；其中的包名、安装命令和功能范围仍属于 juejin-cli。
+
+## juejin-cli 基线
 
 面向开发者与 AI Agent 的稀土掘金 CLI。用本地 Markdown 管理文章，支持登录、搜索、图片上传、草稿、专栏、发布，以及签到、抽奖和每日定时任务。TypeScript SDK 与 CLI 共用同一套实现。
 
