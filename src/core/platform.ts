@@ -5,9 +5,8 @@ import { CliError } from '../shared/errors.js';
 export interface PlatformSession {
   profile: AccountProfile;
   probe(capabilityId: string): Promise<CapabilityAvailability>;
-  execute(capabilityId: string, prepared: unknown, context: OperationContext): Promise<
-    { effect: 'read'; value: unknown } | { effect: 'remote-write'; value: OperationResult }
-  >;
+  read(capabilityId: string, input: unknown, context: OperationContext): Promise<unknown>;
+  executeStep(capabilityId: string, handlerId: string, input: unknown, dependencies: unknown, context: OperationContext): Promise<unknown>;
   inspect(capabilityId: string, remote: RemoteReference, prepared: unknown, context: OperationContext): Promise<OperationResult>;
 }
 export interface Platform {
@@ -44,10 +43,17 @@ export function definePlatform<S extends SessionProfile>(definition: {
         return action({
           profile: session.profile,
           probe: id => get(id).probe(session),
-          execute: async (id, prepared, context) => {
+          read: (id, input, context) => {
             const capability = get(id);
-            if (capability.effect === 'remote-write') return { effect: capability.effect, value: await capability.execute({ ...context, session }, prepared) };
-            return { effect: capability.effect, value: await capability.execute({ ...context, session }, prepared) };
+            if (capability.effect !== 'read') throw new Error('A write capability requires a workflow');
+            return capability.execute({ ...context, session }, input);
+          },
+          executeStep: (id, handlerId, input, dependencies, context) => {
+            const capability = get(id);
+            if (capability.effect !== 'remote-write') throw new Error('A read capability has no workflow');
+            const handler = capability.handlers.get(handlerId);
+            if (!handler) throw new CliError('UNSUPPORTED', '工作流处理器不存在。');
+            return handler.execute({ ...context, session }, input, dependencies);
           },
           inspect: (id, remote, prepared, context) => {
             const capability = get(id);

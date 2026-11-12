@@ -1,6 +1,6 @@
 # 多平台发布的实现结构
 
-当前实现为 0.2 第二批内容快照与计划。唯一可执行入口为 src/wm.ts，公共命令位于 cli/wm-program，内置平台只在 platform/builtins 装配。
+当前实现为 0.2 第三批操作去重与步骤记录。唯一可执行入口为 src/wm.ts，公共命令位于 cli/wm-program，内置平台只在 platform/builtins 装配。
 
 ## 调用链
 
@@ -37,6 +37,8 @@ revisions/<revisionId>.json
 variants/<variantId>.json
 plans/<planId>.json
 jobs/<jobId>/job.json
+operations/<operationId>.json
+indexes/publications/<publicationId>.json
 ~~~
 
 新布局只通过登录建立。旧账号目录和旧任务格式不扫描、不读取、不迁移；历史文件不覆盖。
@@ -49,9 +51,9 @@ Skill 保留 wm 总入口，同时按平台加载 references/wechat、xiaohongsh
 
 ## 执行与验证
 
-每个写能力都由服务包裹持久化步骤，避免自定义处理器遗漏回执后被重放。驱动还可以记录上传、草稿和提交等内部步骤。已完成步骤复用；网络或进程异常保留 unknown，显式业务拒绝才允许继续尝试。
+writeCapability 编译为单步骤工作流；workflowCapability 与 stepHandler 定义复合工作流。掘金显式编译各资产上传、建草稿与发表，公众号编译草稿与发表，小红书使用直接提交步骤。公共执行器只根据依赖、处理器版本及读写副作用顺序执行，不补插平台步骤。
 
-当前仍沿用单机任务回执。独立的跨任务操作记录、步骤级权威回查和完整验证恢复按 [实施计划](PUBLISHING_CORE_IMPLEMENTATION.md) 后续批次实现。
+OperationRecord 是写入事实的唯一权威，按平台真实身份、能力、修订、实际产物与 copyNonce 去重。锁顺序为 job、account、operation。先持久化 running，再执行处理器；成功输出与最终结果原子保存在操作记录中。Job 摘要、Publication 索引和事件日志随后更新，失败只增加诊断，不覆盖已保存事实。新副本的 nonce 隔离整组依赖步骤。步骤级回查和验证恢复继续按第四批推进。
 
 ## 内容与计划
 

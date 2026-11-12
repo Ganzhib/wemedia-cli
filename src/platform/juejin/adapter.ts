@@ -1,10 +1,12 @@
-import { operationResultSchema } from '../../core/types.js';
+import { remoteReferenceSchema, operationResultSchema } from '../../core/types.js';
 import { z } from 'zod';
 import { definePlatform } from '../../core/platform.js';
-import { readCapability, writeCapability } from '../../core/capability.js';
+import { readCapability, workflowCapability } from '../../core/capability.js';
 import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
-import type { AccountScope, CapabilityContext, OperationResult } from '../../core/types.js';
+import type { AccountScope, CapabilityContext } from '../../core/types.js';
 import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
+import { artifactSchema } from '../../core/content.js';
+import { stepHandler } from '../../core/workflow.js';
 import { rewriteImages, scanImages, localImagePath } from '../../content/markdown.js';
 import { CliError } from '../../shared/errors.js';
 import { JuejinClient } from './client.js';
@@ -36,37 +38,52 @@ async function render(document: ArticleDocument, options: z.infer<typeof juejinO
   } };
 }
 
-async function write(context: CapabilityContext<JuejinSession>, article: JuejinArticle, publish: boolean): Promise<OperationResult> {
-  const { client, uploader } = context.session;
-  const drafts = new DraftService(client, uploader);
-  const draft = await context.step('draft.create', async () => {
-    const images = article.assets.filter(asset => asset.artifact).map(asset => ({ path: context.artifacts.path(asset.artifact!), url: localImagePath(asset.source, '/') }));
-    const rewritten = await rewriteImages(article.body, scanImages(article.body, '/'), async source => {
-      const asset = images.find(asset => asset.url === source)!;
-      return asset.path;
-    });
-    const document = { content: rewritten.content, metadata: {}, directory: '/' };
-    const plan = await drafts.prepareDocument(document, {
-      title: article.title, brief: article.options.brief, category: article.options.category,
-      tags: article.options.tags, cover: article.cover?.artifact ? context.artifacts.path(article.cover.artifact) : article.options.cover,
-    });
-    const input = await drafts.uploadAssets(plan);
-    return { id: (await client.createDraft(input)).id };
+function uploadStep(artifact: z.infer<typeof artifactSchema>): string { return 'asset.' + artifact.digest + artifact.extension; }
+async function createDraft(context: CapabilityContext<JuejinSession>, article: JuejinArticle, uploads: Record<string, string>) {
+  const rewritten = await rewriteImages(article.body, scanImages(article.body, '/'), async source => {
+    const asset = article.assets.find(asset => localImagePath(asset.source, '/') === source)!;
+    return uploads[uploadStep(asset.artifact!)];
   });
-  await context.remember({ kind: 'draft', id: draft.id });
-  if (!publish) return { status: 'draft_saved', remote: { kind: 'draft', id: draft.id, url: 'https://juejin.cn/editor/drafts/' + draft.id } };
-  const result = await context.step('article.publish', () => client.publish(draft.id, article.options.columns));
-  return { status: 'submitted', remote: { kind: 'article', id: result.article_id, url: 'https://juejin.cn/post/' + result.article_id } };
+  const cover = article.cover?.artifact ? uploads[uploadStep(article.cover.artifact)] : article.options.cover;
+  const drafts = new DraftService(context.session.client, context.session.uploader);
+  const plan = await drafts.prepareDocument({ content: rewritten.content, metadata: {}, directory: '/' }, {
+    title: article.title, brief: article.options.brief, category: article.options.category, tags: article.options.tags, cover,
+  });
+  const draft = await context.session.client.createDraft(plan.input);
+  const remote = { kind: 'draft', id: draft.id, url: 'https://juejin.cn/editor/drafts/' + draft.id };
+  await context.remember(remote);
+  return remote;
 }
 
 const acceptance = { offline: true, liveRead: false, liveWrite: false };
 export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.fetch } = {}) {
-  const writeDefinition = writeCapability<JuejinSession>();
+  const writeDefinition = workflowCapability<JuejinSession>();
+  const handler = stepHandler<JuejinSession>();
   const readDefinition = readCapability<JuejinSession>();
   const writing = (id: string, description: string, publish: boolean) => writeDefinition({
     id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(juejinOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
     prepare: async (raw, context) => prepareArticle(raw, context, 'juejin', juejinOptionsSchema, render),
-    preflight: async () => undefined, execute: (context, article) => write(context, article, publish),
+    preflight: async () => undefined,
+    compile: article => {
+      const assets = [...article.assets, ...(article.cover ? [article.cover] : [])].filter(asset => asset.artifact);
+      const uploads = [...new Map(assets.map(asset => [uploadStep(asset.artifact!), asset.artifact!])).entries()];
+      const steps = uploads.map(([id, artifact]) => ({ id, handler: 'asset.upload', version: '1', needs: [], input: artifact }));
+      return { id, version: '1', resultStep: publish ? 'article.publish' : 'draft.result', steps: [
+        ...steps, { id: 'draft.create', handler: 'draft.create', version: '1', needs: uploads.map(([id]) => id), input: JSON.parse(JSON.stringify(article)) },
+        { id: publish ? 'article.publish' : 'draft.result', handler: publish ? 'article.publish' : 'draft.result', version: '1', needs: ['draft.create'], input: { columns: article.options.columns } },
+      ] };
+    },
+    handlers: {
+      'asset.upload': handler({ version: '1', effect: 'remote-write', input: artifactSchema, dependencies: z.strictObject({}), output: z.string(), execute: (context, artifact) => context.session.uploader.upload(context.artifacts.path(artifact)) }),
+      'draft.create': handler({ version: '1', effect: 'remote-write', input: preparedSchema, dependencies: z.record(z.string(), z.string()), output: remoteReferenceSchema, execute: createDraft }),
+      'article.publish': handler({ version: '1', effect: 'remote-write', input: z.object({ columns: z.array(z.string()) }), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
+        execute: async (context, input, dependencies) => {
+          const result = await context.session.client.publish(dependencies['draft.create'].id, input.columns);
+          return { status: 'submitted' as const, remote: { kind: 'article', id: result.article_id, url: 'https://juejin.cn/post/' + result.article_id } };
+        } }),
+      'draft.result': handler({ version: '1', effect: 'read', input: z.object({ columns: z.array(z.string()) }), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
+        execute: async (_context, _input, dependencies) => ({ status: 'draft_saved' as const, remote: dependencies['draft.create'] }) }),
+    },
     inspect: async ({ session }, remote) => {
       if (remote.kind === 'draft') { await session.client.draft(remote.id); return { status: 'draft_saved', remote }; }
       await session.client.article(remote.id);
@@ -74,7 +91,7 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
     },
   });
   return definePlatform({
-    id: 'juejin', name: '掘金', driver: { id: 'juejin.web', version: '3' },
+    id: 'juejin', name: '掘金', driver: { id: 'juejin.web', version: '4' },
     login: async (directory: string) => {
       await ensureBrowser();
       const profile = await login(new SessionStore(directory));

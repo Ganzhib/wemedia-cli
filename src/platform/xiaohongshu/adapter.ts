@@ -122,10 +122,8 @@ export async function submitXhs(page: Page, timeoutMs = 60_000): Promise<Operati
 }
 
 async function publishXhs(context: CapabilityContext<XhsSession>, article: XhsArticle): Promise<OperationResult> {
-  return context.step('note.publish', async () => {
-    await fillXhs(context.session.page, article, context.artifacts);
-    return submitXhs(context.session.page);
-  });
+  await fillXhs(context.session.page, article, context.artifacts);
+  return submitXhs(context.session.page);
 }
 
 async function ownNotes(page: Page, profile: AccountProfile, limit: number) {
@@ -144,7 +142,7 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
   const browser = dependencies.withBrowser ?? withAccountBrowser;
   const acceptance = { offline: true, liveRead: false, liveWrite: false };
   return definePlatform<XhsSession>({
-    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '3' },
+    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '4' },
     login: directory => browser({ directory }, async (_context, page) => {
       const profile = await xhsProfile(page, true);
       await navigatePlatform(page, PUBLISH);
