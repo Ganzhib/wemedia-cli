@@ -5,7 +5,6 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toMarkdown } from 'mdast-util-to-markdown';
 import type { Definition, Image, Nodes } from 'mdast';
 import { CliError } from '../shared/errors.js';
-import { validateImage } from '../platform/juejin/imagex.js';
 
 export interface ArticleMetadata { title?: string; brief?: string; category?: string; tags?: string[]; cover?: string }
 export interface MarkdownDocument { content: string; metadata: ArticleMetadata; directory: string }
@@ -65,13 +64,6 @@ export function scanImages(content: string, directory: string): LocalImage[] {
     if (path) images.push({ path, url: node.url, node });
   });
   return images;
-}
-
-export async function preflightImages(images: LocalImage[], cover?: string): Promise<void> {
-  const paths = new Set(images.map(image => image.path));
-  if (cover) paths.add(cover);
-  // Validate every local asset before uploading the first one.
-  for (const path of paths) await validateImage(path);
 }
 
 export async function rewriteImages(

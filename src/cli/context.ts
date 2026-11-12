@@ -3,11 +3,11 @@ import { resolve } from 'node:path';
 import { JuejinClient } from '../platform/juejin/client.js';
 import { JuejinHttp } from '../platform/juejin/http.js';
 import { ImageUploader } from '../platform/juejin/imagex.js';
-import { SessionStore, cookieHeader } from '../runtime/session.js';
-import { DraftService } from '../services/draft-service.js';
-import { WritingService } from '../services/writing-service.js';
+import { SessionStore, cookieHeader } from '../platform/juejin/session.js';
+import { DraftService } from '../platform/juejin/draft-service.js';
+import { WritingService } from '../platform/juejin/writing-service.js';
 import { CliOutput } from './output.js';
-import { withBrowserHttp } from '../runtime/browser-http.js';
+import { withBrowserHttp } from '../platform/juejin/browser-http.js';
 import type { Globals } from './options.js';
 
 export interface CommandServices {

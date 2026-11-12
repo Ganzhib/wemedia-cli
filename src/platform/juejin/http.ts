@@ -61,7 +61,7 @@ export class JuejinHttp {
       throw new CliError('PROTOCOL', `接口 ${path} 未返回 JSON。`, { path });
     }
     if (envelope.err_no !== 0) {
-      throw new CliError('API', `掘金接口失败：${envelope.err_msg}`, { path, err_no: envelope.err_no });
+      throw new CliError('API', `掘金接口失败：${envelope.err_msg}`, { path, err_no: envelope.err_no, outcome: 'rejected' });
     }
     return envelope;
   }

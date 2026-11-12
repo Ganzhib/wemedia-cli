@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 function cli(arguments_: string[], home: string) {
   return spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--home', home, ...arguments_], {
-    encoding: 'utf8', env: { ...process.env, JUEJIN_AUTO_INSTALL_SKILL: '0' },
+    encoding: 'utf8', env: { ...process.env, JUEJIN_AUTO_INSTALL_SKILL: '0', WM_AUTO_INSTALL_SKILL: '0' },
   });
 }
 

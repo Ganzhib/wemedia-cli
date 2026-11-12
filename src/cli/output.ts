@@ -29,6 +29,9 @@ export class CliOutput {
       this.streams.stderr.write(JSON.stringify({ ok: false, error: { code: failure.code, message: failure.message, details: failure.details } }) + '\n');
     } else {
       this.streams.stderr.write(`${failure.code}: ${failure.message}\n`);
+      if (failure.details?.job_id) {
+        this.streams.stderr.write(JSON.stringify(failure.details) + '\n请运行 wm job get ' + String(failure.details.job_id) + ' --json 核对任务。\n');
+      }
       if (failure.details?.operation_id || failure.details?.draft_id || failure.details?.column_id || failure.details?.result) {
         this.streams.stderr.write(`操作回执：${JSON.stringify(failure.details)}\n请运行 juejin history --json 核对结果。\n`);
       }

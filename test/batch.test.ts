@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WritingService } from '../src/services/writing-service.js';
-import { DraftService } from '../src/services/draft-service.js';
+import { WritingService } from '../src/platform/juejin/writing-service.js';
+import { DraftService } from '../src/platform/juejin/draft-service.js';
 import { JuejinClient } from '../src/platform/juejin/client.js';
 import { JuejinHttp } from '../src/platform/juejin/http.js';
 import { ImageUploader } from '../src/platform/juejin/imagex.js';
-import { SessionStore } from '../src/runtime/session.js';
+import { SessionStore } from '../src/platform/juejin/session.js';
 
 test('batch preflights all files, resumes completed work and refuses unknown writes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'juejin-batch-'));

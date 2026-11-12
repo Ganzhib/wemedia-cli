@@ -1,5 +1,33 @@
 # Third-party notices
 
+## autoclaw-cc/xiaohongshu-skills
+
+The account navigation selectors, image-text composer workflow and the documented
+`xhs-publish-btn` publish event in `src/platform/xiaohongshu/adapter.ts` are adapted
+from commit `b043748282a57e347c52f517dfb59819121134ab` of
+https://github.com/autoclaw-cc/xiaohongshu-skills.
+The implementation is ported to TypeScript/Playwright, with response-based note IDs,
+durable task receipts, account isolation and no successful fallback after timeout.
+The complete MIT license is retained in `licenses/xiaohongshu-skills-MIT.txt`.
+
+## JimLiu/baoyu-skills
+
+The WeChat article editor insertion, image placeholder workflow and draft-save
+signals in `src/platform/wechat/adapter.ts` are adapted from
+`skills/baoyu-post-to-wechat/scripts/wechat-article.ts`, commit
+`ca703c2d7c2c4399a1dc0cf82224f8551e05a96d`, at
+https://github.com/JimLiu/baoyu-skills.
+The implementation uses Playwright-managed profiles, sanitized rendered HTML,
+cover selection, readback and task receipts, without external clipboard tools.
+The complete MIT license is retained in `licenses/baoyu-skills-MIT.txt`.
+
+## caol64/wenyan-core
+
+WeChat rendering uses the npm dependency `@wenyan-md/core` version 3.0.6 from
+https://github.com/caol64/wenyan-core under Apache-2.0. Its license and dependency
+notices are distributed with the npm dependency. Browser workflow code is maintained
+by this project; the renderer's draft API is not presented as formal publication.
+
 ## Agents365-ai/drawio-skill
 
 `skills/drawio-skill/` bundles Draw.io Architecture Studio 3.4.4 from

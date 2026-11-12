@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { ColumnOptions } from '../../services/writing-service.js';
+import type { ColumnOptions } from '../../platform/juejin/writing-service.js';
 import type { CommandContext } from '../context.js';
 import { id, paging, type Paging } from '../options.js';
 import { articleSummary } from '../presentation.js';

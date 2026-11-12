@@ -1,4 +1,4 @@
-import { CliError } from '../shared/errors.js';
+import { CliError } from '../../shared/errors.js';
 
 const dayMs = 86_400_000;
 const formatter = new Intl.DateTimeFormat('en-CA', {

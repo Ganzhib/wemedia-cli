@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
 env:
+  WM_AUTO_INSTALL_SKILL: '0'
   JUEJIN_AUTO_INSTALL_SKILL: '0'
   JUEJIN_AUTO_UPDATE: '0'
 jobs:
@@ -25,4 +26,15 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run check:package
-      - run: node dist/cli.js --help
+      - run: node dist/wm.js --help
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser

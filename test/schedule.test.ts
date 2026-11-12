@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CheckInScheduler, type SchedulerExec } from '../src/runtime/schedule.js';
-import { SessionStore } from '../src/runtime/session.js';
+import { CheckInScheduler, type SchedulerExec } from '../src/platform/juejin/schedule.js';
+import { SessionStore } from '../src/platform/juejin/session.js';
 
 test('schedule plans validate input and preserve a stable named identity per profile', async () => {
   const scheduler = new CheckInScheduler(new SessionStore('/example/profile'), { platform: 'darwin', uid: 501 });

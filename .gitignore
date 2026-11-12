@@ -7,6 +7,10 @@ coverage/
 session.json
 storage-state.json
 .juejin-cli/
+.wemedia-cli/
+accounts/
+jobs/
+browser-profile/
 output/
 site-dist/
 release/

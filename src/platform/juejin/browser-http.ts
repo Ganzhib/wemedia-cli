@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { JuejinHttp } from '../platform/juejin/http.js';
+import { JuejinHttp } from './http.js';
 import { SessionStore } from './session.js';
 
 // Growth endpoints require the official page's security SDK. Use its normal fetch path, without extracting or forging signatures.

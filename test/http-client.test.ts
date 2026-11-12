@@ -27,7 +27,7 @@ test('does not replay writes after network failure or HTTP failure', async () =>
 test('retains business error code without including authentication secrets', async () => {
   const http = new JuejinHttp({ cookie: 'sessionid=secret', fetch: async () => Response.json({ err_no: 1000, err_msg: 'not logged in', data: null }) });
   await assert.rejects(() => http.data('/private'), (error: CliError) => {
-    assert.deepEqual(error.details, { path: '/private', err_no: 1000 });
+    assert.deepEqual(error.details, { path: '/private', err_no: 1000, outcome: 'rejected' });
     assert.ok(!JSON.stringify(error).includes('secret'));
     return true;
   });

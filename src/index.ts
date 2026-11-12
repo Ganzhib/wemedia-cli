@@ -3,14 +3,20 @@ export type { Article, ArticleInfo, Category, ColumnDetail, ColumnInput, Draft, 
 export { JuejinHttp } from './platform/juejin/http.js';
 export type { ApiResponse, HttpOptions } from './platform/juejin/http.js';
 export { CliError } from './shared/errors.js';
-export { SessionStore, cookieHeader } from './runtime/session.js';
+export { SessionStore, cookieHeader } from './platform/juejin/session.js';
 export { ImageUploader } from './platform/juejin/imagex.js';
-export { DraftService } from './services/draft-service.js';
+export { DraftService } from './platform/juejin/draft-service.js';
 export { installSkill, skillStatus } from './runtime/skills.js';
-export { WritingService } from './services/writing-service.js';
+export { WritingService } from './platform/juejin/writing-service.js';
 export { createProgram, runCli } from './cli/program.js';
 
 export type { CheckInCounts, CheckInReward, CheckInDay, GrowthRule, GrowthWriteResult, LotteryPrize, LotteryConfig, LotteryHistory, LotteryLucky } from './platform/juejin/types.js';
-export { withBrowserHttp } from './runtime/browser-http.js';
-export { CheckInScheduler } from './runtime/schedule.js';
-export type { SchedulePlan, SchedulerOptions, SchedulerExec, SchedulerResult } from './runtime/schedule.js';
+export { withBrowserHttp } from './platform/juejin/browser-http.js';
+export { CheckInScheduler } from './platform/juejin/schedule.js';
+export type { SchedulePlan, SchedulerOptions, SchedulerExec, SchedulerResult } from './platform/juejin/schedule.js';
+export { PlatformRegistry } from './core/registry.js';
+export type { PlatformAdapter, PlatformOperation, OperationContext, OperationResult, ArticleDocument, PreparedArticle, RemoteReference, AccountProfile, Asset, Intent } from './core/types.js';
+export { PublishingService } from './services/publishing.js';
+export type { PublishJob, TargetJob, StepRecord } from './services/publishing.js';
+export { AccountStore, listAccounts } from './runtime/accounts.js';
+export { createWmProgram, runWmCli, defaultRegistry } from './cli/wm-program.js';

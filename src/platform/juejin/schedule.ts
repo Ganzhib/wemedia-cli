@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PACKAGE_ROOT } from '../package.js';
-import { CliError } from '../shared/errors.js';
+import { PACKAGE_ROOT } from '../../package.js';
+import { CliError } from '../../shared/errors.js';
 import { SessionStore, verifySession } from './session.js';
 
 export interface SchedulerResult { code: number; stdout: string; stderr: string }
