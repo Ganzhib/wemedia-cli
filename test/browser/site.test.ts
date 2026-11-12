@@ -30,9 +30,10 @@ for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding a
     assert.equal(await page.locator('#scenario-steps li').count(), 3);
   }
   await page.locator('[data-copy="setup-prompt"]').click();
-  assert.match(await page.evaluate(() => document.documentElement.dataset.copied ?? ''), /WeMedia.*alpha/);
+  assert.match(await page.evaluate(() => document.documentElement.dataset.copied ?? ''), /WeMedia.*最新版本/);
   await page.getByText('自行安装', { exact: true }).click();
   assert.equal(await page.locator('#install-command').isVisible(), true);
+  assert.match(await page.locator('#install-command').innerText(), /@latest$/);
   // Clipboard denial must leave the requested text available for manual copying.
   await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('denied'); }; });
   await page.locator('[data-copy="install-command"]').click();

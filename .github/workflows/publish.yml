@@ -1,0 +1,36 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+env:
+  WM_AUTO_INSTALL_SKILL: '0'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org/
+          cache: npm
+      - run: npm install --global npm@11.21.2
+      - run: npm ci
+      - run: npm run release:check
+      - name: Check release version
+        id: release
+        run: node scripts/release-target.mjs >> "$GITHUB_OUTPUT"
+      - name: Publish
+        if: steps.release.outputs.publish == 'true'
+        run: npm publish --access public --tag "${{ steps.release.outputs.tag }}"
