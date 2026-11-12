@@ -56,7 +56,7 @@ test('later deletion observations never erase a confirmed historical submission'
   const refreshed = await service.refresh(job.id);
   assert.equal(refreshed.targets[0].status, 'published');
   assert.equal(refreshed.targets[0].observation?.result.state, 'deleted');
-  assert.equal((await service.publications.get(refreshed.targets[0].operationId)).result?.status, 'published');
+  assert.equal((await service.publications.list())[0].revisions[0].result?.status, 'published');
 });
 
 test('verification metadata contains a safe resource and can resume after confirmed evidence', async t => {

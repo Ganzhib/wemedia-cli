@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="620" viewBox="0 0 900 620" role="img" aria-labelledby="flow-title flow-description">
+  <title id="flow-title">一个 wm 核心，连接多平台内容能力</title>
+  <desc id="flow-description">左侧文稿与稳定账号身份进入 wm，共享核心将内容交给掘金、小红书、公众号和知乎各自的适配器。线路表示架构关系，不代表平台功能或线上验收状态。</desc>
+  <defs>
+    <pattern id="flow-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#bac9bd" opacity=".4"/>
+    </pattern>
+    <filter id="flow-shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#243e33" flood-opacity=".08"/>
+    </filter>
+    <filter id="core-shadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#243e33" flood-opacity=".17"/>
+    </filter>
+  </defs>
+
+  <rect x="24" y="30" width="852" height="552" rx="36" fill="#f4f5ed"/>
+  <rect x="42" y="48" width="816" height="516" rx="24" fill="url(#flow-grid)"/>
+
+  <g fill="none" stroke="#bed8c8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M224 286H340"/>
+    <path d="M297 466H316Q330 466 330 452V379Q330 365 340 365"/>
+    <path d="M570 320H599Q614 320 614 305V153Q614 138 629 138H655"/>
+    <path d="M614 252H655"/>
+    <path d="M614 305V465Q614 480 629 480H655"/>
+    <path d="M614 366H655"/>
+  </g>
+  <g fill="#7bbf9d" stroke="#f4f5ed" stroke-width="4">
+    <circle cx="280" cy="286" r="6"/>
+    <circle cx="330" cy="409" r="6"/>
+    <circle cx="614" cy="252" r="6"/>
+    <circle cx="614" cy="366" r="6"/>
+  </g>
+
+  <g filter="url(#flow-shadow)">
+    <rect x="66" y="180" width="158" height="214" rx="22" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+    <path d="M94 218H174L197 241V327Q197 337 187 337H104Q94 337 94 327Z" fill="#f5f7ef" stroke="#dde6d9" stroke-width="1.5"/>
+    <path d="M174 218V231Q174 241 184 241H197" fill="none" stroke="#dde6d9" stroke-width="1.5"/>
+    <path d="M112 263H162M112 279H179M112 295H170M112 311H147" fill="none" stroke="#c4cebe" stroke-width="5" stroke-linecap="round"/>
+    <path d="M112 263H139" stroke="#61a986" stroke-width="5" stroke-linecap="round"/>
+    <text x="145" y="370" text-anchor="middle" fill="#28382e" font-family="system-ui, sans-serif" font-size="21" font-weight="600">内容快照</text>
+  </g>
+  <text x="70" y="156" fill="#788577" font-family="ui-monospace, monospace" font-size="12" letter-spacing="1.5">TEXT · MEDIA</text>
+
+  <g filter="url(#flow-shadow)">
+    <rect x="87" y="430" width="210" height="72" rx="20" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+    <rect x="103" y="445" width="42" height="42" rx="13" fill="#e4efe5"/>
+    <circle cx="124" cy="460" r="6" fill="none" stroke="#498368" stroke-width="2"/>
+    <path d="M114 477C115 467 133 467 134 477" fill="none" stroke="#498368" stroke-width="2" stroke-linecap="round"/>
+    <text x="161" y="474" fill="#28382e" font-family="system-ui, sans-serif" font-size="20" font-weight="600">账号身份</text>
+  </g>
+
+  <circle cx="455" cy="320" r="145" fill="none" stroke="#d4e4d6" stroke-width="1.5"/>
+  <circle cx="455" cy="320" r="127" fill="none" stroke="#d4e4d6" stroke-width="1" stroke-dasharray="3 9"/>
+  <rect x="340" y="220" width="230" height="200" rx="30" fill="#25372e" filter="url(#core-shadow)"/>
+  <text x="455" y="258" text-anchor="middle" fill="#9dc6ac" font-family="ui-monospace, monospace" font-size="12" letter-spacing="2">CLI + SKILL</text>
+  <g transform="translate(365 215) scale(3)" fill="none" stroke="#fffefa" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 24L14 42L21 30L28 42L33 24"/>
+    <path d="M37 42V24L44 35L51 24V42"/>
+  </g>
+  <text x="455" y="384" text-anchor="middle" fill="#c5d7c9" font-family="system-ui, sans-serif" font-size="16">一个入口，按平台执行</text>
+  <g fill="#b4d7c2" stroke="#25372e" stroke-width="3">
+    <circle cx="340" cy="286" r="5"/>
+    <circle cx="340" cy="365" r="5"/>
+    <circle cx="570" cy="320" r="5"/>
+  </g>
+
+  <g font-family="system-ui, sans-serif" font-weight="600">
+    <g filter="url(#flow-shadow)">
+      <rect x="655" y="88" width="205" height="100" rx="20" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+      <rect x="674" y="114" width="48" height="48" rx="14" fill="#e8f0e5"/>
+      <path d="M686 142L698 129L710 142M690 148H706" fill="none" stroke="#498368" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="740" y="148" fill="#28382e" font-size="26">掘金</text>
+    </g>
+    <g filter="url(#flow-shadow)">
+      <rect x="655" y="202" width="205" height="100" rx="20" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+      <rect x="674" y="228" width="48" height="48" rx="14" fill="#f0e9de"/>
+      <path d="M688 242H708V264L698 258L688 264Z" fill="none" stroke="#8e7861" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M694 248H702" stroke="#8e7861" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="740" y="262" fill="#28382e" font-size="26">小红书</text>
+    </g>
+    <g filter="url(#flow-shadow)">
+      <rect x="655" y="316" width="205" height="100" rx="20" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+      <rect x="674" y="342" width="48" height="48" rx="14" fill="#dfeee3"/>
+      <path d="M686 353H710V371H699L691 378V371H686Z" fill="none" stroke="#498368" stroke-width="2.5" stroke-linejoin="round"/>
+      <circle cx="693" cy="362" r="1.5" fill="#498368"/>
+      <circle cx="703" cy="362" r="1.5" fill="#498368"/>
+      <text x="740" y="376" fill="#28382e" font-size="26">公众号</text>
+    </g>
+    <g filter="url(#flow-shadow)">
+      <rect x="655" y="430" width="205" height="100" rx="20" fill="#fffefa" stroke="#dce1d6" stroke-width="1.5"/>
+      <rect x="674" y="456" width="48" height="48" rx="14" fill="#e4ebe9"/>
+      <path d="M687 469H709M698 463V486M687 487C698 487 703 483 707 476" fill="none" stroke="#57796f" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="740" y="490" fill="#28382e" font-size="26">知乎</text>
+    </g>
+  </g>
+  <text x="455" y="563" text-anchor="middle" fill="#788577" font-family="system-ui, sans-serif" font-size="16">同一契约 · 各自能力</text>
+</svg>

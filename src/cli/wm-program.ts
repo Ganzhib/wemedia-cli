@@ -7,6 +7,8 @@ import { defaultRegistry } from '../platform/builtins.js';
 import { AccountRepository, wmHome } from '../runtime/accounts.js';
 import { autoInstallSkill } from '../runtime/skills.js';
 import { PublishingService, type PublishJob, type TargetJob } from '../services/publishing.js';
+import { resourceSnapshotSchema } from '../core/types.js';
+import { parseInput } from '../core/validation.js';
 import { CliError } from '../shared/errors.js';
 import { VERSION } from '../package.js';
 import { CliOutput, type CliStreams } from './output.js';
@@ -29,6 +31,7 @@ function targetNextAction(jobId: string, target: TargetJob) {
   switch (target.requiredAction) {
     case 'login': return { command: 'wm', args: ['auth', 'login', target.identity.platformId, '--binding', target.identity.bindingId] };
     case 'scan_in_browser': return { command: 'wm', args: ['job', 'resume', jobId] };
+    case 'review_remote_changes': return { command: 'wm', args: ['job', 'get', jobId, '--json'] };
     case 'inspect_remote': return { command: 'wm', args: ['job', 'refresh', jobId] };
   }
 }
@@ -46,7 +49,7 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const emit = (value: unknown) => output.success(value, json());
   const emitJob = (job: PublishJob) => {
     const result = { job_id: job.id, plan_id: job.planId, capability: job.capabilityId, targets: job.targets.map(target => ({
-      identity: target.identity, alias: target.alias, operation_id: target.operationId, observation: target.observation, status: target.status, execution_status: target.executionStatus, verification: target.verification, required_action: target.requiredAction, next_action: targetNextAction(job.id, target), remote: target.remote, message: target.message, data: target.data,
+      identity: target.identity, alias: target.alias, operation_id: target.operationId, observation: target.observation, status: target.status, execution_status: target.executionStatus, verification: target.verification, required_action: target.requiredAction, error: target.failure, next_action: targetNextAction(job.id, target), remote: target.remote, message: target.message, data: target.data,
     })), diagnostics: job.diagnostics };
     const failed = job.targets.some(target => {
       const capability = registry.capability(target.identity.platformId, job.capabilityId);
@@ -111,6 +114,27 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const draft = program.command('draft').description('平台草稿');
   contentOptions(draft.command('create <file>').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main'))
     .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'draft.create'));
+  for (const [name, capabilityId] of [['update', 'draft.update'], ['publish', 'draft.publish']] as const) {
+    const command = draft.command(name === 'update' ? 'update <file>' : 'publish')
+      .requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main')
+      .requiredOption('--base <file>', 'resource.get 保存的完整快照 JSON').option('--options <file>', '平台选项 JSON').option('--dry-run', '只准备内容');
+    const action = async (file: string | undefined, flags: { platform: string; account: string; base: string; options?: string; dryRun?: boolean }) => {
+      const base = await jsonFile(flags.base); const options = flags.options ? await jsonFile(flags.options) : undefined;
+      const input = name === 'update' ? { file, base, options } : { base, ...options as object };
+      if (flags.dryRun) { emit({ dry_run: true, targets: await service().prepare(capabilityId, input, [flags.platform + ':' + flags.account]) }); return; }
+      const result = await service().invoke(flags.platform, flags.account, capabilityId, input);
+      if (result.effect === 'remote-write') emitJob(result.value);
+    };
+    if (name === 'update') command.action((file: string, flags) => action(file, flags));
+    else command.action(flags => action(undefined, flags));
+  }
+  program.command('resource').description('读取平台资源和版本基准').command('get <kind> <id>')
+    .requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main').option('--selector <file>', '平台子项定位 JSON').option('--output <file>', '保存快照 JSON')
+    .action(async (kind: string, id: string, flags: { platform: string; account: string; selector?: string; output?: string }) => {
+      const result = await service().invoke(flags.platform, flags.account, 'resource.get', { resource: { kind, id, ...(flags.selector ? { selector: await jsonFile(flags.selector) } : {}) } });
+      if (flags.output) await writeFile(resolve(flags.output), JSON.stringify(result.value, null, 2), { mode: 0o600 });
+      emit(result.value);
+    });
   const article = program.command('article').description('平台内容');
   contentOptions(article.command('publish <file>').option('--to <targets>', 'platform:account，逗号分隔').option('--platform <platform>', '单个平台').option('--account <alias>', '账号别名', 'main'))
     .action((file: string, flags: Record<string, unknown>) => execute(file, flags, 'content.publish'));
@@ -134,6 +158,20 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
     for (const target of frozen.targets) targets.push({ ...target, ...(await planning.variant(target)) });
     emit({ ...frozen, targets });
   });
+  plan.command('diff <before> <after>').action(async (before: string, after: string) => emit(await service().planning.diff(before, after)));
+  plan.command('export <id>').requiredOption('--directory <path>', '导出平台实际产物目录').action(async (id: string, flags: { directory: string }) => {
+    const { mkdir, copyFile } = await import('node:fs/promises'); const { join } = await import('node:path');
+    const planning = service().planning; const frozen = await planning.get(id); const files = [];
+    for (const target of frozen.targets) {
+      const { variant } = await planning.variant(target); const directory = resolve(flags.directory, target.identity.platformId, target.identity.bindingId);
+      await mkdir(directory, { recursive: true });
+      for (const [index, output] of variant.outputs.entries()) {
+        const file = join(directory, index + '-' + output.artifact.digest + output.artifact.extension);
+        await copyFile(planning.objects.path(output.artifact), file); files.push({ identity: target.identity, role: output.role, file, artifact: output.artifact });
+      }
+    }
+    emit({ plan_id: frozen.id, files });
+  });
   plan.command('run <id>').action(async (id: string) => emitJob(await service().run((await service().start(id)).id)));
   article.command('plan <file>').requiredOption('--to <targets>', 'platform:account，逗号分隔').option('--intent <intent>', 'publish 或 draft', 'publish').option('--options <file>', '平台选项 JSON').option('--new-copy', '创建新的发布副本')
     .action(async (file: string, flags: { to: string; intent: string; options?: string; newCopy?: boolean }) => {
@@ -143,6 +181,10 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const publication = program.command('publication').description('查询本地远端引用与修订关联');
   publication.command('list').action(async () => emit(await service().publications.list()));
   publication.command('get <id>').action(async (id: string) => emit(await service().publications.get(id)));
+  publication.command('refresh <id>').action(async (id: string) => {
+    const publishing = service();
+    emit(await publishing.publications.refresh(id, async (identity, resource) => parseInput(resourceSnapshotSchema, await publishing.read(identity, 'resource.get', { resource }))));
+  });
   publication.command('rebuild').action(async () => emit(await service().publications.rebuild()));
   const job = program.command('job').description('执行回执与恢复');
   job.command('get <id>').action(async (id: string) => emit(await service().get(id)));

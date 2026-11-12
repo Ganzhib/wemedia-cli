@@ -37,7 +37,7 @@ test('uploads through STS/Apply/TOS/Commit/URL without leaking cookies to upload
       return Response.json({ Result: { Results: [{ UriStatus: 2000 }] } });
     };
     const http = new JuejinHttp({ cookie: 'sessionid=account-secret', fetch: fetchMock });
-    assert.equal(await new ImageUploader(http, fetchMock).upload(file), 'https://cdn.example/image.png');
+    assert.deepEqual(await new ImageUploader(http, fetchMock).upload(file), { uri: 'image/path', url: 'https://cdn.example/image.png' });
     assert.deepEqual(calls, ['/imagex/v2/gen_token:', '/:ApplyImageUpload', '/image/path:', '/:CommitImageUpload', '/imagex/v2/get_img_url:']);
     const failingUrl: typeof fetch = async (url, init) => {
       if (String(url).includes('get_img_url')) throw new Error('timeout');

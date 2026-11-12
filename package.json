@@ -1,7 +1,7 @@
 {
   "name": "@ganzhibin/wemedia-cli",
-  "version": "0.2.0-alpha.4",
-  "description": "AI-native multi-platform publishing CLI for Juejin, Xiaohongshu and WeChat",
+  "version": "0.4.0-alpha.1",
+  "description": "AI-native multi-platform publishing CLI for Juejin, Xiaohongshu, WeChat and Zhihu",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -27,7 +27,7 @@
     "type": "git",
     "url": "https://github.com/Ganzhib/wemedia-cli.git"
   },
-  "homepage": "https://github.com/Ganzhib/wemedia-cli#readme",
+  "homepage": "https://ganzhib.github.io/wemedia-cli/",
   "bugs": {
     "url": "https://github.com/Ganzhib/wemedia-cli/issues"
   },
@@ -38,7 +38,8 @@
     "wechat",
     "xiaohongshu",
     "juejin",
-    "markdown"
+    "markdown",
+    "zhihu"
   ],
   "publishConfig": {
     "access": "public",
@@ -51,7 +52,7 @@
     "dev": "tsx src/wm.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "check:package": "npm run build && node scripts/check-package.mjs",
-    "build:site": "node scripts/build-site.mjs",
+    "build:site": "npm run build && node scripts/build-site.mjs",
     "release:check": "node scripts/release-check.mjs",
     "prepare": "npm run build",
     "postinstall": "node scripts/postinstall.mjs",

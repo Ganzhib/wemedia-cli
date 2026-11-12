@@ -1,5 +1,6 @@
 import type { ArtifactReader } from '../../core/content.js';
-import { operationResultSchema } from '../../core/types.js';
+import { resourceSnapshot } from '../../content/resources.js';
+import { operationResultSchema, resourceSnapshotSchema, remoteReferenceSchema } from '../../core/types.js';
 import { errors, type Page } from 'playwright';
 import { z } from 'zod';
 import type { AccountProfile, CapabilityContext, OperationResult } from '../../core/types.js';
@@ -136,7 +137,7 @@ async function ownNotes(page: Page, profile: AccountProfile, limit: number) {
     const url = link?.href ?? '';
     const id = url.match(/\/([a-f0-9]{24})(?:\?|$)/)?.[1];
     if (!id) throw new Error('笔记卡片未提供稳定 ID。');
-    return { id, title: card.querySelector('.title')?.textContent?.trim() ?? '', url };
+    return { id, title: card.querySelector('.title')?.textContent?.trim() ?? '', url: 'https://www.xiaohongshu.com/explore/' + id };
   }), limit);
 }
 
@@ -144,7 +145,7 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
   const browser = dependencies.withBrowser ?? withAccountBrowser;
   const acceptance = { offline: true, liveRead: false, liveWrite: false };
   return definePlatform<XhsSession>({
-    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '4' },
+    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '5' },
     login: directory => browser({ directory }, async (_context, page) => {
       const profile = await xhsProfile(page, true);
       await navigatePlatform(page, PUBLISH);
@@ -175,6 +176,15 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
           const notes = await ownNotes(session.page, session.profile, 100);
           if (notes.some(note => note.id === remote.id)) return { state: 'published', remote };
           return { state: 'submitted', remote, message: '自己的公开笔记列表尚未包含此 ID，可能仍在审核。' };
+        },
+      }),
+      readCapability<XhsSession>()({
+        id: 'resource.get', description: '按稳定 ID 回查自己的公开笔记列表记录；不将列表缺失推断为删除', acceptance,
+        input: z.strictObject({ resource: remoteReferenceSchema.extend({ kind: z.literal('note') }) }), output: resourceSnapshotSchema,
+        execute: async ({ session }, input) => {
+          const note = (await ownNotes(session.page, session.profile, 100)).find(note => note.id === input.resource.id);
+          if (!note) return resourceSnapshot({ kind: 'note', id: input.resource.id }, 'unknown', { reason: 'not_in_current_own_list' });
+          return resourceSnapshot({ kind: 'note', id: note.id, url: note.url }, 'published', { title: note.title });
         },
       }),
       readCapability<XhsSession>()({

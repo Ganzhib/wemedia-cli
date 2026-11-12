@@ -15,7 +15,7 @@ try {
   const [packed] = JSON.parse(run([npm, 'pack', '--json', '--ignore-scripts', '--pack-destination', directory]));
   assert.equal(packed.name, '@ganzhibin/wemedia-cli');
   const paths = new Set(packed.files.map(file => file.path));
-  for (const path of ['dist/wm.js', 'dist/core/registry.js', 'dist/core/capability.js', 'dist/core/platform.js', 'dist/services/publishing.js', 'dist/platform/wechat/adapter.js', 'dist/platform/xiaohongshu/adapter.js', 'skills/wm/SKILL.md', 'licenses/baoyu-skills-MIT.txt', 'licenses/xiaohongshu-skills-MIT.txt']) assert.ok(paths.has(path), 'Missing ' + path);
+  for (const path of ['dist/wm.js', 'dist/core/registry.js', 'dist/core/capability.js', 'dist/core/platform.js', 'dist/services/publishing.js', 'dist/platform/wechat/adapter.js', 'dist/platform/xiaohongshu/adapter.js', 'dist/platform/zhihu/adapter.js', 'licenses/dsh-article-share-MIT.txt', 'licenses/article-sync-action-MIT.txt', 'skills/wm/SKILL.md', 'licenses/baoyu-skills-MIT.txt', 'licenses/xiaohongshu-skills-MIT.txt']) assert.ok(paths.has(path), 'Missing ' + path);
   assert.deepEqual([...paths].filter(path => path.startsWith('skills/') && path.split('/').length === 3 && path.endsWith('/SKILL.md')), ['skills/wm/SKILL.md']);
   assert.ok(!paths.has('dist/cli.js') && !paths.has('dist/cli/program.js'), 'No legacy executable or command tree');
   assert.ok(![...paths].some(path => path.startsWith('skills/') && !path.startsWith('skills/wm/')));
@@ -28,7 +28,7 @@ try {
   assert.deepEqual(metadata.bin, { wm: 'dist/wm.js' });
   assert.equal(run([cli, '--version']).trim(), metadata.version);
   assert.equal(JSON.parse(run([cli, 'schema', 'article', 'publish', '--json'])).data.command.name, 'publish');
-  assert.equal(JSON.parse(run([cli, 'platform', 'list', '--json'])).data.length, 3);
+  assert.equal(JSON.parse(run([cli, 'platform', 'list', '--json'])).data.length, 4);
   assert.equal(JSON.parse(run([cli, 'skill', 'status', '--json'])).data.state, 'installed');
   const skillSchema = JSON.parse(run([cli, 'schema', 'skill', 'install', '--json'])).data.command;
   assert.ok(!skillSchema.options.some(option => option.flags.startsWith('--name')));
@@ -36,7 +36,7 @@ try {
   assert.equal(legacyName.status, 2);
   assert.equal(JSON.parse(legacyName.stderr).error.code, 'INPUT');
   await access(join(skills, 'wm', 'SKILL.md'));
-  for (const name of ['wechat', 'xiaohongshu', 'juejin']) await access(join(skills, 'wm', 'references', name + '.md'));
+  for (const name of ['wechat', 'xiaohongshu', 'juejin', 'zhihu']) await access(join(skills, 'wm', 'references', name + '.md'));
   const unauthenticated = spawnSync(process.execPath, [cli, '--home', join(directory, 'empty-home'), 'auth', 'status', '--json'], { env, encoding: 'utf8' });
   assert.equal(unauthenticated.status, 3);
   assert.equal(JSON.parse(unauthenticated.stderr).error.code, 'AUTH');

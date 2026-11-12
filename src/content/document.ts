@@ -7,11 +7,9 @@ import { parseInput } from '../core/validation.js';
 import { inferredTitle, localImagePath, scanImages, rewriteImages } from './markdown.js';
 import { CliError } from '../shared/errors.js';
 import { artifactSchema, type ContentPreparation } from '../core/content.js';
-import { digest } from '../runtime/objects.js';
-export { digest } from '../runtime/objects.js';
 
 export interface ArticleDocument {
-  file: string; sourceDigest: string; markdown: string; metadata: Record<string, unknown>;
+  file: string; markdown: string; metadata: Record<string, unknown>;
   platforms: Record<string, Record<string, unknown>>;
   preparation: ContentPreparation; captured: Map<string, Asset>;
 }
@@ -28,19 +26,22 @@ export function articleInputSchema<T extends z.ZodRawShape>(options: z.ZodObject
   return fileEnvelopeSchema.extend({ options: options.partial().strict().optional() });
 }
 
-export async function prepareArticle<T extends z.ZodRawShape, P extends PreparedArticle>(input: { file: string; options?: object }, preparation: ContentPreparation, platformId: string, optionsSchema: z.ZodObject<T>, render: (document: ArticleDocument, options: z.infer<z.ZodObject<T>>) => Promise<P>): Promise<P> {
+export async function prepareArticle<T extends z.ZodRawShape, P extends PreparedArticle>(input: { file: string; options?: object }, preparation: ContentPreparation, platformId: string, optionsSchema: z.ZodObject<T>, render: (document: ArticleDocument, options: z.infer<z.ZodObject<T>>) => Promise<P>, defaults: object = {}): Promise<P> {
   const document = await readDocument(input.file, preparation);
   const { platforms: _platforms, ...common } = document.metadata;
   const overrides = input.options;
   // Metadata and explicit options are one input boundary. Only the selected platform's schema owns their fields.
   const shared = Object.fromEntries(Object.entries(common).filter(([key]) => key in optionsSchema.shape));
-  const options = parseInput(optionsSchema.strict(), { ...shared, ...document.platforms[platformId], ...overrides });
+  const options = parseInput(optionsSchema.strict(), { ...defaults, ...shared, ...document.platforms[platformId], ...overrides });
   // Freeze local references before rendering: neither output nor its digest contains a home or source path.
   const images = scanImages(document.markdown, dirname(document.file));
   document.markdown = (await rewriteImages(document.markdown, images, async path => (await assetFrom(path, document)).source)).content;
   if ('images' in options && Array.isArray(options.images)) Object.assign(options, { images: await Promise.all(options.images.map(async source => (await assetFrom(source, document)).source)) });
   if ('cover' in options && typeof options.cover === 'string') Object.assign(options, { cover: (await assetFrom(options.cover, document)).source });
-  return render(document, options);
+  const prepared = await render(document, options);
+  const extensions: Record<string, string> = { 'text/html': '.html', 'text/markdown': '.md', 'text/plain': '.txt' };
+  await preparation.output(Buffer.from(prepared.body), prepared.format, 'body', extensions[prepared.format] ?? '');
+  return prepared;
 }
 
 export async function readDocument(file: string, preparation: ContentPreparation): Promise<ArticleDocument> {
@@ -54,7 +55,7 @@ export async function readDocument(file: string, preparation: ContentPreparation
     throw new CliError('INPUT', 'frontmatter.platforms 必须是按平台名称组织的配置对象。');
   }
   preparation.source(original, 'markdown', metadata);
-  return { preparation, captured: new Map(), file: absolute, sourceDigest: digest(source), markdown: parsed.content, metadata, platforms: platforms as ArticleDocument['platforms'] };
+  return { preparation, captured: new Map(), file: absolute, markdown: parsed.content, metadata, platforms: platforms as ArticleDocument['platforms'] };
 }
 
 export function documentTitle(document: ArticleDocument, options: { title?: string }): string {

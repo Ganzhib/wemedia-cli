@@ -61,14 +61,15 @@ test('publication indexes rebuild from authoritative references without repeatin
   const one = platformFixture('one', async context => { writes++; await context.remember({ kind: 'draft', id: 'draft' }); return { status: 'published', remote: { kind: 'article', id: 'article' } }; });
   const { service, home } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', { body: 'Content' }, ['one']);
-  await mkdir(join(home, 'indexes', 'publications', job.targets[0].operationId + '.json'), { recursive: true });
+  await mkdir(join(home, 'indexes'), { recursive: true });
+  await writeFile(join(home, 'indexes', 'publications'), 'blocked');
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'published');
   assert.ok(result.diagnostics.some(diagnostic => diagnostic.reason === 'publication_index_failed'));
   const rebuilt = await service.publications.rebuild();
   assert.deepEqual(rebuilt[0].references.map(reference => reference.kind), ['draft', 'article']);
   await rm(join(home, 'indexes'), { recursive: true });
-  assert.equal((await service.publications.get(job.targets[0].operationId)).result?.status, 'published');
+  assert.equal((await service.publications.get(rebuilt[0].id)).revisions[0].result?.status, 'published');
   await service.publications.rebuild();
   assert.equal((await service.publications.list()).length, 1);
   await service.run(job.id); assert.equal(writes, 1);

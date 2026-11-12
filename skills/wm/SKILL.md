@@ -1,6 +1,6 @@
 ---
 name: wm
-description: 通过 wm CLI 管理自媒体平台账号、草稿、发布和回执；用于公众号、小红书、掘金或其他已接入平台的内容管理与多平台发文。
+description: 通过 wm CLI 管理自媒体平台账号、草稿、发布和回执；用于公众号、小红书、掘金、知乎或其他已接入平台的内容管理与多平台发文。
 ---
 
 # 多平台内容管理
@@ -12,6 +12,7 @@ wm 是统一入口。使用 `wm platform list --json` 和 `wm schema --json` 发
 - [微信公众号](references/wechat.md)：排版、正文图片、封面、草稿回读及发表验证。
 - [小红书](references/xiaohongshu.md)：图文、短文、正式话题、可见范围与审核回查。
 - [掘金](references/juejin.md)：Markdown、分类标签、摘要和专栏。
+- [知乎](references/zhihu.md)：专栏编辑器、自动保存、图片与创作声明。
 
 其他平台以注册能力及 schema 为准。平台知识分开维护，账号、任务和错误处理共用 wm。
 
@@ -30,7 +31,14 @@ wm article list --platform PLATFORM --json
 wm draft list --platform PLATFORM --json
 wm article plan article.md --to PLATFORM:main --intent draft --json
 wm plan inspect PLAN_ID --json
+wm plan diff OLD_PLAN_ID NEW_PLAN_ID --json
+wm plan export PLAN_ID --directory ./preview --json
 wm plan run PLAN_ID --json
+wm resource get draft DRAFT_ID --platform PLATFORM --output base.json --json
+wm draft update article.md --platform PLATFORM --base base.json --json
+wm draft publish --platform PLATFORM --base base.json --json
+wm publication list --json
+wm publication refresh PUBLICATION_ID --json
 wm job get JOB_ID --json
 wm job refresh JOB_ID --json
 wm job resume JOB_ID --json
@@ -43,3 +51,5 @@ wm job resume JOB_ID --json
 根据 required_action 和 next_action 的参数数组处理恢复。账号失效时按 binding 重新登录，不能因为别名变化而换账号重发。execution_status 描述执行阶段，status 保留该次业务结果，observation 是带时间的远端观察或读取错误；后续删除或审核拒绝不等于原提交从未发生。缺少证据时不要用 --new-copy 绕过未知状态。
 
 需要分开审阅与执行时，先建立计划并 inspect 实际平台产物，再运行 plan run。计划保存正文及本地素材快照，修改或移走原稿不改变旧计划。相同修订、实际产物及目标默认复用已有计划与任务。只有明确要求再发一份时才使用 `--new-copy`。平台输入和自然语言示例见 [内容场景](references/scenarios.md)，仅在准备对应内容时读取。
+
+已有草稿的更新与发表使用 resource.get 返回的完整快照作为 base；不要手工拼凑版本摘要。CONFLICT 返回远端变化和当前快照，先核对差异，再按用户意图准备新计划。公众号多篇图文必须明确 selector.item_index；整组版本变化会阻止对子项的更新。平台没有注册 draft.update 时直接说明范围。publication 的 revisions 保留同一资源的修订来源，observation 独立记录远端状态或读取错误。

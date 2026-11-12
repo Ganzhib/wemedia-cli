@@ -15,15 +15,15 @@ import { CliError } from '../shared/errors.js';
 
 export const stepRecordSchema = z.object({
   phase: z.enum(['ready', 'running', 'succeeded', 'rejected', 'unknown', 'waiting_for_verification']),
-  failure: z.object({ code: z.string() }).optional(),
+  failure: z.object({ code: z.string(), details: z.json().optional() }).optional(),
   value: z.json().optional(), message: z.string().optional(), references: z.array(remoteReferenceSchema), verification: verificationSchema.optional(),
   recovery: z.object({ time: z.string(), verdict: z.enum(['effect_confirmed', 'not_applied', 'indeterminate']), source: z.string(), message: z.string(), reference: remoteReferenceSchema.optional() }).optional(),
 });
 export type StepRecord = z.infer<typeof stepRecordSchema>;
 const operationSchema = z.object({
-  schema: z.literal(2), id: z.string(), capabilityId: z.string(), copyNonce: z.string(), createdAt: z.string(),
+  schema: z.literal(3), id: z.string(), capabilityId: z.string(), copyNonce: z.string(), createdAt: z.string(),
   target: planTargetSchema, workflow: workflowSchema,
-  steps: z.record(z.string(), stepRecordSchema), references: z.array(remoteReferenceSchema),
+  steps: z.record(z.string(), stepRecordSchema), references: z.array(remoteReferenceSchema), assets: z.array(remoteReferenceSchema), diagnostics: z.array(z.string()),
   status: z.enum(['planned', 'running', 'rejected', 'unknown', 'waiting_for_verification', 'completed']),
   result: operationResultSchema.optional(), observations: z.array(z.union([z.object({ time: z.string(), result: remoteObservationSchema }), z.object({ time: z.string(), error: z.object({ code: z.string(), message: z.string() }) })])),
   message: z.string().optional(),
@@ -48,8 +48,8 @@ export class OperationRepository {
     return withFileLock(join(this.home, 'operations', id + '.lock'), async () => {
       let record = await this.find(id);
       if (!record) {
-        record = { schema: 2, id, capabilityId: plan.capabilityId, copyNonce: plan.copyNonce, createdAt: new Date().toISOString(), target, workflow: target.workflow,
-          steps: {}, references: [], status: 'planned', observations: [] };
+        record = { schema: 3, id, capabilityId: plan.capabilityId, copyNonce: plan.copyNonce, createdAt: new Date().toISOString(), target, workflow: target.workflow,
+          steps: {}, references: [], assets: [], diagnostics: [], status: 'planned', observations: [] };
         await this.save(record);
       }
       return action(record);
@@ -71,13 +71,13 @@ export class WorkflowExecutor {
       record.steps[step.id] = { ...previous, phase: 'running', references: [] }; record.status = 'running';
       await this.operations.save(record);
       let value: unknown;
-      try { value = await session.executeStep(record.capabilityId, step.handler, step.input, dependencies, { ...context, remember: async remote => { record.steps[step.id].references.push(remote); await context.remember(remote); } }); }
+      try { value = await session.executeStep(record.capabilityId, step.handler, step.input, dependencies, { ...context, remember: async (remote, role) => { record.steps[step.id].references.push(remote); await context.remember(remote, role); } }); }
       catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         let phase: StepRecord['phase'] = handler.effect === 'read' ? 'rejected' : 'unknown';
         if (error instanceof CliError && error.details?.outcome === 'rejected') phase = 'rejected';
         if (error instanceof CliError && error.code === 'VERIFICATION') phase = 'waiting_for_verification';
-        record.steps[step.id] = { ...record.steps[step.id], phase, message, failure: { code: error instanceof CliError ? error.code : 'INTERNAL' } };
+        record.steps[step.id] = { ...record.steps[step.id], phase, message, failure: { code: error instanceof CliError ? error.code : 'INTERNAL', ...(error instanceof CliError && error.code === 'CONFLICT' ? { details: JSON.parse(JSON.stringify(error.details)) } : {}) } };
         if (phase === 'waiting_for_verification') {
           const details = error instanceof CliError ? error.details : undefined;
           const supplied = details?.verification as { kind: string; strategy: 'inspect' | 'continue'; resource?: z.infer<typeof remoteReferenceSchema> } | undefined;
@@ -88,6 +88,7 @@ export class WorkflowExecutor {
       record.steps[step.id] = { ...record.steps[step.id], phase: 'succeeded', value: JSON.parse(JSON.stringify(value)) };
       if (step.id === record.workflow.resultStep) {
         record.result = parseInput(capability.outputSchema, value) as z.infer<typeof operationResultSchema>;
+        if (record.result.observation) record.observations.push({ time: new Date().toISOString(), result: record.result.observation });
         record.status = 'completed'; delete record.message;
         if (!capability.successStates.includes(record.result.status)) {
           record.status = 'unknown'; record.steps[step.id].phase = 'unknown'; record.message = '当前结果尚未达到此能力的完成条件。';

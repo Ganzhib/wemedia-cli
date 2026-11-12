@@ -8,6 +8,7 @@ import { readJson, writeJson, withFileLock } from '../runtime/storage.js';
 export class PreparationContext {
   private readonly sources: Artifact[] = [];
   private readonly assets: Artifact[] = [];
+  private readonly outputs: PreparedVariant['outputs'] = [];
   private importer = 'json';
   private metadata: unknown = null;
   readonly objects: ObjectStore;
@@ -25,6 +26,9 @@ export class PreparationContext {
   }
   source(artifact: Artifact, importer: string, metadata: unknown): void { this.sources.push(artifact); this.importer = importer; this.metadata = metadata; }
   asset(artifact: Artifact): void { if (!this.assets.some(entry => entry.digest === artifact.digest && entry.extension === artifact.extension)) this.assets.push(artifact); }
+  async output(bytes: Uint8Array, mediaType: string, role: string, extension = ''): Promise<Artifact> {
+    const artifact = await this.objects.put(bytes, mediaType, extension); this.outputs.push({ role, artifact }); return artifact;
+  }
   async freeze(payload: unknown, renderer: PreparedVariant['renderer']): Promise<PreparedVariant> {
     const encoded = canonicalJson(payload);
     const content = await this.objects.put(Buffer.from(encoded), 'application/json', '.json');
@@ -33,8 +37,8 @@ export class PreparationContext {
       assets: [...this.assets].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b))), metadata: this.metadata,
     };
     const revision = { schema: 1, id: semanticDigest(revisionInput), ...revisionInput } as ContentRevision;
-    const variantInput = { revisionId: revision.id, digest: content.digest, payload: content, artifacts: [...revision.sources, ...revision.assets], renderer };
-    const variant: PreparedVariant = { schema: 1, id: semanticDigest(variantInput), ...variantInput };
+    const variantInput = { revisionId: revision.id, digest: semanticDigest({ payload: content.digest, outputs: this.outputs }), payload: content, outputs: this.outputs, artifacts: [...revision.sources, ...revision.assets], renderer };
+    const variant: PreparedVariant = { schema: 2, id: semanticDigest(variantInput), ...variantInput };
     await immutableJson(this.home, 'revisions', revision.id, revision);
     await immutableJson(this.home, 'variants', variant.id, variant);
     return variant;

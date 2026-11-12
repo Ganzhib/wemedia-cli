@@ -1,11 +1,14 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const metadata = JSON.parse(await readFile("package.json", "utf8"));
 const output = "site-dist";
 await rm(output, { recursive: true, force: true });
 await cp("site", output, { recursive: true });
+const schema = JSON.parse(execFileSync(process.execPath, ['dist/wm.js', 'schema', '--json'], { encoding: 'utf8', env: { ...process.env, WM_AUTO_INSTALL_SKILL: '0' } }));
+await writeFile(join(output, 'catalog.json'), JSON.stringify({ version: metadata.version, platforms: schema.data.platforms }));
 for (const name of ["index.html", "app.js"]) {
   const path = join(output, name);
   const content = (await readFile(path, "utf8"))
@@ -24,7 +27,7 @@ for (const asset of ['app.js', 'styles.css']) {
 }
 await writeFile(join(output, 'index.html'), index);
 await mkdir(join(output, "examples"), { recursive: true });
-await cp("examples/article.md", join(output, "examples/article.md"));
+await cp("examples", join(output, "examples"), { recursive: true });
 await cp("skills/wm", join(output, "skill"), { recursive: true });
 await writeFile(join(output, ".nojekyll"), "");
 console.log(`Built GitHub Pages for ${metadata.name}@${metadata.version}`);
