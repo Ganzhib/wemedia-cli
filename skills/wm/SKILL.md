@@ -28,6 +28,9 @@ wm draft create article.md --platform PLATFORM --json
 wm article publish article.md --to PLATFORM:main --json
 wm article list --platform PLATFORM --json
 wm draft list --platform PLATFORM --json
+wm article plan article.md --to PLATFORM:main --intent draft --json
+wm plan inspect PLAN_ID --json
+wm plan run PLAN_ID --json
 wm job get JOB_ID --json
 wm job refresh JOB_ID --json
 wm job resume JOB_ID --json
@@ -37,4 +40,4 @@ wm job resume JOB_ID --json
 
 `submitted` 表示受理，按任务回查实际展示；`unknown` 表示可能已写入，先回查且不重放；`waiting_for_verification` 表示平台要求验证，保留任务 ID。分别报告各目标结果，保留其他平台已经完成的内容。
 
-同一内容及目标默认复用已有任务。只有明确要求再发一份时才使用 `--new-copy`。平台输入和自然语言示例见 [内容场景](references/scenarios.md)，仅在准备对应内容时读取。
+需要分开审阅与执行时，先建立计划并 inspect 实际平台产物，再运行 plan run。计划保存正文及本地素材快照，修改或移走原稿不改变旧计划。相同修订、实际产物及目标默认复用已有计划与任务。只有明确要求再发一份时才使用 `--new-copy`。平台输入和自然语言示例见 [内容场景](references/scenarios.md)，仅在准备对应内容时读取。

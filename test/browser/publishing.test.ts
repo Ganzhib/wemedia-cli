@@ -1,7 +1,7 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium, type BrowserContext } from 'playwright';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { composeWechatDraft, insertWechatHtml, publishWechatDraft, readWechatList, createWechatPlatform } from '../../src/platform/wechat/adapter.js';
@@ -10,6 +10,7 @@ import { ensureBrowser } from '../../src/runtime/managed-browser.js';
 import { CliError } from '../../src/shared/errors.js';
 import { AccountRepository } from '../../src/runtime/accounts.js';
 import { PlatformRegistry } from '../../src/core/registry.js';
+import { ObjectStore } from '../../src/runtime/objects.js';
 import { PublishingService } from '../../src/services/publishing.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64');
@@ -49,7 +50,8 @@ const editorFixture = `<!doctype html><meta charset="utf-8">
 const editor=document.querySelector('.ProseMirror');
 const stored=localStorage.getItem('draft');
 if(stored){const saved=JSON.parse(stored);document.querySelector('#title').value=saved.title;editor.innerHTML=saved.body;}
-document.querySelector('input[type=file]').onchange=()=>{
+document.querySelector('input[type=file]').onchange=async e=>{
+ window.uploadedBytes=Array.from(new Uint8Array(await e.target.files[0].arrayBuffer()));localStorage.setItem('uploadedBytes',JSON.stringify(window.uploadedBytes));
  const image=document.createElement('img');image.src='https://mmbiz.qpic.cn/uploaded.png';
  const selection=window.getSelection();if(selection.rangeCount&&editor.contains(selection.anchorNode)){selection.getRangeAt(0).insertNode(image);}else editor.append(image);
 };
@@ -84,13 +86,15 @@ test('WeChat compose uploads at the body marker, sets cover, saves and reads bac
   t.after(() => rm(directory, { recursive: true, force: true }));
   const image = join(directory, 'cover.png');
   await writeFile(image, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64'));
+  const objects = new ObjectStore(directory);
+  const artifact = await objects.put(await readFile(image), 'image/png', '.png');
   const page = await context.newPage();
   await page.goto('https://mp.weixin.qq.com/cgi-bin/home?token=PRIVATE_FIXTURE_TOKEN');
   const draft = await composeWechatDraft(context, page, {
     title: '完整发布流程', body: '<p>图片之前</p><p><img src="./cover.png"></p><p>图片之后</p>', format: 'html',
-    assets: [{ source: './cover.png', path: image, digest: '1234567890abcdef' }],
-    cover: { source: './cover.png', path: image }, options: { author: '作者', summary: '摘要' },
-  });
+    assets: [{ source: './cover.png', artifact }],
+    cover: { source: './cover.png', artifact }, options: { author: '作者', summary: '摘要' },
+  }, objects);
   assert.deepEqual(draft, { kind: 'draft', id: '123456' });
   assert.ok(!JSON.stringify(draft).includes('PRIVATE_FIXTURE_TOKEN'));
   const editor = context.pages().find(candidate => candidate !== page)!;
@@ -145,8 +149,10 @@ test('WeChat list reads stable IDs from current page data and distinguishes empt
 test('WeChat capability runs through account binding, one browser session, real composing and durable receipts', async t => {
   const { home, file } = await contentFixture(t);
   let opens = 0, closes = 0, profileLoads = 0;
+  let uploadedBytes: number[] = [];
   const platform = createWechatPlatform({ withBrowser: async (_account, action) => {
     opens++;
+    await writeFile(join(home, 'cover.png'), 'changed during login');
     const context = await browser(t);
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
@@ -156,17 +162,23 @@ test('WeChat capability runs through account binding, one browser session, real 
       if (url.pathname === '/cgi-bin/home') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<script>window.wx={data:{user_name:"wechat-id",nick_name:"Creator"}}</script><div class="new-creation__menu"><a target="_blank" href="/cgi-bin/appmsg?token=FIXTURE">文章</a></div>' });
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: editorFixture });
     });
-    try { return await action(context, await context.newPage()); }
+    try {
+      const result = await action(context, await context.newPage());
+      uploadedBytes = await context.pages().find(page => new URL(page.url()).pathname === '/cgi-bin/appmsg')!.evaluate('JSON.parse(localStorage.getItem("uploadedBytes"))');
+      return result;
+    }
     finally { await context.close(); closes++; }
   } });
   const accounts = new AccountRepository(home);
   await accounts.login('wechat', 'main', async () => ({ id: 'wechat-id', name: 'Creator' }));
   const service = new PublishingService(home, new PlatformRegistry([platform]));
   const job = await service.create('draft.create', { file }, ['wechat']);
+  await rm(file);
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'draft_saved', result.targets[0].message);
   assert.equal(result.targets[0].remote?.id, '123456');
   assert.equal(result.targets[0].steps['draft.create'].phase, 'done');
+  assert.deepEqual(uploadedBytes, [...png]);
   await service.run(job.id);
   assert.deepEqual({ opens, closes, profileLoads }, { opens: 1, closes: 1, profileLoads: 1 });
 });
@@ -174,6 +186,7 @@ test('WeChat capability runs through account binding, one browser session, real 
 test('Xiaohongshu capability fills images and formal topics and captures the real submission response in one session', async t => {
   const { home, file } = await contentFixture(t);
   let opens = 0, closes = 0, submissions = 0;
+  let uploadedNote: number[] = [];
   let submitted: { title: string; images: number; topics: number } | undefined;
   const profile = '<div class="main-container"><div class="user"><div class="link-wrapper"><a class="link-wrapper" href="/user/profile/abcdef012345">我</a></div></div></div><div class="user-name">Creator</div><div class="feeds-container"><div class="note-item"><a class="cover" href="/explore/0123456789abcdef01234567">封面</a><div class="title">实际流程</div></div></div>';
   const composer = `<!doctype html><meta charset="utf-8"><div class="creator-tab">上传图文</div><input type="file" multiple>
@@ -181,12 +194,13 @@ test('Xiaohongshu capability fills images and formal topics and captures the rea
     <div id="creator-editor-topic-container"><button class="item">工程</button></div><xhs-publish-btn is-publish="true"></xhs-publish-btn>
     <script>
     let count=0;
-    document.querySelector('input[type=file]').onchange=e=>{count=e.target.files.length;document.querySelector('.img-preview-area').innerHTML='<div class="pr"></div>'.repeat(count);};
+    document.querySelector('input[type=file]').onchange=async e=>{window.uploadedBytes=Array.from(new Uint8Array(await e.target.files[0].arrayBuffer()));count=e.target.files.length;document.querySelector('.img-preview-area').innerHTML='<div class="pr"></div>'.repeat(count);};
     document.querySelector('.item').onclick=()=>{const topic=document.createElement('a');topic.dataset.topicId='topic-1';topic.textContent='#工程';document.querySelector('.ql-editor').append(topic);};
     document.querySelector('xhs-publish-btn').addEventListener('publish',()=>fetch('https://edith.xiaohongshu.com/web_api/sns/v2/note',{method:'POST',body:JSON.stringify({title:document.querySelector('.d-input input').value,images:count,topics:document.querySelectorAll('a[data-topic-id]').length})}));
     </script>`;
   const platform = createXiaohongshuPlatform({ withBrowser: async (_account, action) => {
     opens++;
+    await writeFile(join(home, 'cover.png'), 'changed during login');
     const context = await browser(t);
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -198,16 +212,22 @@ test('Xiaohongshu capability fills images and formal topics and captures the rea
       if (url.hostname === 'www.xiaohongshu.com') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: profile });
       return route.abort();
     });
-    try { return await action(context, await context.newPage()); }
+    try {
+      const page = await context.newPage(); const result = await action(context, page);
+      if (new URL(page.url()).hostname === 'creator.xiaohongshu.com') uploadedNote = await page.evaluate('window.uploadedBytes');
+      return result;
+    }
     finally { await context.close(); closes++; }
   } });
   await new AccountRepository(home).login('xiaohongshu', 'main', async () => ({ id: 'abcdef012345', name: 'Creator' }));
   const service = new PublishingService(home, new PlatformRegistry([platform]));
   const job = await service.create('content.publish', { file, options: { content: '针对图文平台准备的正文。', tags: ['工程'] } }, ['xiaohongshu']);
+  await rm(file);
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'submitted', result.targets[0].message);
   assert.equal(result.targets[0].remote?.kind, 'note');
   assert.equal(result.targets[0].remote?.id, '0123456789abcdef01234567');
+  assert.deepEqual(uploadedNote, [...png]);
   assert.deepEqual(submitted, { title: '实际流程', images: 1, topics: 1 });
   await service.run(job.id);
   assert.deepEqual({ opens, closes, submissions }, { opens: 1, closes: 1, submissions: 1 });

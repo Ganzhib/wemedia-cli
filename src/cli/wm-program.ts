@@ -37,7 +37,7 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const service = () => new PublishingService(home(), registry);
   const emit = (value: unknown) => output.success(value, json());
   const emitJob = (job: PublishJob) => {
-    const result = { job_id: job.id, capability: job.capabilityId, targets: job.targets.map(target => ({
+    const result = { job_id: job.id, plan_id: job.planId, capability: job.capabilityId, targets: job.targets.map(target => ({
       identity: target.identity, alias: target.alias, status: target.status, remote: target.remote, message: target.message, data: target.data,
     })) };
     const failed = job.targets.some(target => {
@@ -116,6 +116,22 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
     command.command('list').requiredOption('--platform <platform>', '目标平台').option('--account <alias>', '账号别名', 'main').option('--limit <number>', '最多条数', Number, 20)
       .action(async (flags: { platform: string; account: string; limit: number }) => emit((await service().invoke(flags.platform, flags.account, capabilityId, { limit: flags.limit })).value));
   }
+  const plan = program.command('plan').description('冻结内容、目标身份和平台产物');
+  plan.command('create <capability>').requiredOption('--to <targets>', 'platform:account，逗号分隔').requiredOption('--input <file>', '能力输入 JSON，- 表示 stdin').option('--new-copy', '创建新的发布副本')
+    .action(async (capability: string, flags: { to: string; input: string; newCopy?: boolean }) => emit(await service().planning.create(capability, await jsonFile(flags.input), flags.to.split(','), flags.newCopy)));
+  plan.command('get <id>').action(async (id: string) => emit(await service().planning.get(id)));
+  plan.command('inspect <id>').action(async (id: string) => {
+    const planning = service().planning; const frozen = await planning.get(id);
+    const targets = [];
+    for (const target of frozen.targets) targets.push({ ...target, ...(await planning.variant(target)) });
+    emit({ ...frozen, targets });
+  });
+  plan.command('run <id>').action(async (id: string) => emitJob(await service().run((await service().start(id)).id)));
+  article.command('plan <file>').requiredOption('--to <targets>', 'platform:account，逗号分隔').option('--intent <intent>', 'publish 或 draft', 'publish').option('--options <file>', '平台选项 JSON').option('--new-copy', '创建新的发布副本')
+    .action(async (file: string, flags: { to: string; intent: string; options?: string; newCopy?: boolean }) => {
+      if (!['publish', 'draft'].includes(flags.intent)) throw new CliError('INPUT', '--intent 仅支持 publish 或 draft。');
+      emit(await service().planning.create(flags.intent === 'draft' ? 'draft.create' : 'content.publish', { file, options: flags.options ? await jsonFile(flags.options) : undefined }, flags.to.split(','), flags.newCopy));
+    });
   const job = program.command('job').description('执行回执与恢复');
   job.command('get <id>').action(async (id: string) => emit(await service().get(id)));
   job.command('resume <id>').action(async (id: string) => emitJob(await service().run(id)));

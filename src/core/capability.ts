@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { CapabilityAvailability, CapabilityContext, CapabilityMetadata, OperationResult, RemoteReference } from './types.js';
+import type { ContentPreparation, ArtifactReader } from './content.js';
 import { CliError } from '../shared/errors.js';
 
 export function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -14,8 +15,8 @@ interface BaseCapability<S> extends CapabilityMetadata {
   inputSchema: z.ZodType;
   outputSchema: z.ZodType;
   preparedSchema: z.ZodType;
-  prepare(input: unknown): Promise<unknown>;
-  preflight(prepared: unknown): Promise<void>;
+  prepare(input: unknown, context: ContentPreparation): Promise<unknown>;
+  preflight(prepared: unknown, artifacts: ArtifactReader): Promise<void>;
   probe(session: S): Promise<CapabilityAvailability>;
 }
 export interface ReadCapability<S> extends BaseCapability<S> {
@@ -47,16 +48,16 @@ export function writeCapability<S>() {
   return <I, P, O extends OperationResult>(definition: CapabilityMetadata & {
     input: z.ZodType<I>; prepared: z.ZodType<P>; output: z.ZodType<O>;
     successStates: readonly OperationResult['status'][];
-    prepare(input: NoInfer<I>): Promise<NoInfer<P>>;
-    preflight(prepared: NoInfer<P>): Promise<void>;
+    prepare(input: NoInfer<I>, context: ContentPreparation): Promise<NoInfer<P>>;
+    preflight(prepared: NoInfer<P>, artifacts: ArtifactReader): Promise<void>;
     probe?: (session: S) => Promise<CapabilityAvailability>;
     execute(context: CapabilityContext<S>, prepared: NoInfer<P>): Promise<NoInfer<O>>;
     inspect?(context: CapabilityContext<S>, remote: RemoteReference, prepared: NoInfer<P>): Promise<OperationResult>;
   }): WriteCapability<S> => ({
     ...definition, effect: 'remote-write', inputSchema: definition.input, outputSchema: definition.output, preparedSchema: definition.prepared,
-    prepare: raw => definition.prepare(parseInput(definition.input, raw)),
+    prepare: (raw, context) => definition.prepare(parseInput(definition.input, raw), context),
     probe: definition.probe ?? unknownAvailability,
-    preflight: prepared => definition.preflight(prepared as P),
+    preflight: (prepared, artifacts) => definition.preflight(prepared as P, artifacts),
     execute: (context, prepared) => definition.execute(context, prepared as P),
     ...(definition.inspect ? { inspect: (context: CapabilityContext<S>, remote: RemoteReference, prepared: unknown) => definition.inspect!(context, remote, prepared as P) } : {}),
   });

@@ -1,16 +1,16 @@
 import { operationResultSchema } from '../../core/types.js';
-import { dirname } from 'node:path';
 import { z } from 'zod';
 import { definePlatform } from '../../core/platform.js';
 import { readCapability, writeCapability } from '../../core/capability.js';
 import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
 import type { AccountScope, CapabilityContext, OperationResult } from '../../core/types.js';
-import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preflightArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
+import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
+import { rewriteImages, scanImages, localImagePath } from '../../content/markdown.js';
 import { CliError } from '../../shared/errors.js';
 import { JuejinClient } from './client.js';
 import { JuejinHttp } from './http.js';
 import { DraftService } from './draft-service.js';
-import { ImageUploader } from './imagex.js';
+import { ImageUploader, validateImageMetadata } from './imagex.js';
 import { SessionStore, cookieHeader, login, type UserProfile } from './session.js';
 import { ensureBrowser } from '../../runtime/managed-browser.js';
 
@@ -19,7 +19,7 @@ export const juejinOptionsSchema = z.object({
   category: z.string().min(1), tags: z.array(z.string().min(1)).min(1), columns: z.array(z.string()).optional(),
   cover: z.string().optional(), images: z.array(z.string()).optional(),
 });
-const optionsSchema = z.object({ file: z.string(), brief: z.string(), category: z.string(), tags: z.array(z.string()), cover: z.string(), columns: z.array(z.string()) });
+const optionsSchema = z.object({ brief: z.string(), category: z.string(), tags: z.array(z.string()), cover: z.string(), columns: z.array(z.string()) });
 const preparedSchema = preparedArticleSchema.extend({ options: optionsSchema });
 type JuejinArticle = z.infer<typeof preparedSchema>;
 interface JuejinSession { profile: { id: string; name: string }; client: JuejinClient; uploader: ImageUploader }
@@ -30,8 +30,9 @@ async function render(document: ArticleDocument, options: z.infer<typeof juejinO
   if (!brief) throw new CliError('INPUT', '掘金需要 50–100 字摘要。');
   const assets = await documentAssets(document, options);
   const cover = options.cover ? await assetFrom(options.cover, document) : undefined;
+  for (const asset of [...assets, ...(cover ? [cover] : [])]) if (asset.artifact) validateImageMetadata(asset.artifact.extension, asset.artifact.size);
   return { title, body: document.markdown, format: 'text/markdown', assets, cover, options: {
-    file: document.file, brief, category: options.category, tags: options.tags, cover: options.cover ?? '', columns: options.columns ?? [],
+    brief, category: options.category, tags: options.tags, cover: options.cover ?? '', columns: options.columns ?? [],
   } };
 }
 
@@ -39,10 +40,15 @@ async function write(context: CapabilityContext<JuejinSession>, article: JuejinA
   const { client, uploader } = context.session;
   const drafts = new DraftService(client, uploader);
   const draft = await context.step('draft.create', async () => {
-    const document = { content: article.body, metadata: {}, directory: dirname(article.options.file) };
+    const images = article.assets.filter(asset => asset.artifact).map(asset => ({ path: context.artifacts.path(asset.artifact!), url: localImagePath(asset.source, '/') }));
+    const rewritten = await rewriteImages(article.body, scanImages(article.body, '/'), async source => {
+      const asset = images.find(asset => asset.url === source)!;
+      return asset.path;
+    });
+    const document = { content: rewritten.content, metadata: {}, directory: '/' };
     const plan = await drafts.prepareDocument(document, {
       title: article.title, brief: article.options.brief, category: article.options.category,
-      tags: article.options.tags, cover: article.options.cover,
+      tags: article.options.tags, cover: article.cover?.artifact ? context.artifacts.path(article.cover.artifact) : article.options.cover,
     });
     const input = await drafts.uploadAssets(plan);
     return { id: (await client.createDraft(input)).id };
@@ -59,8 +65,8 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
   const readDefinition = readCapability<JuejinSession>();
   const writing = (id: string, description: string, publish: boolean) => writeDefinition({
     id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(juejinOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
-    prepare: async raw => prepareArticle(raw, 'juejin', juejinOptionsSchema, render),
-    preflight: preflightArticle, execute: (context, article) => write(context, article, publish),
+    prepare: async (raw, context) => prepareArticle(raw, context, 'juejin', juejinOptionsSchema, render),
+    preflight: async () => undefined, execute: (context, article) => write(context, article, publish),
     inspect: async ({ session }, remote) => {
       if (remote.kind === 'draft') { await session.client.draft(remote.id); return { status: 'draft_saved', remote }; }
       await session.client.article(remote.id);
@@ -68,7 +74,7 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
     },
   });
   return definePlatform({
-    id: 'juejin', name: '掘金', driver: { id: 'juejin.web', version: '2' },
+    id: 'juejin', name: '掘金', driver: { id: 'juejin.web', version: '3' },
     login: async (directory: string) => {
       await ensureBrowser();
       const profile = await login(new SessionStore(directory));
@@ -78,7 +84,7 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
       const cookies = await new SessionStore(account.directory).load();
       const http = new JuejinHttp({ cookie: cookieHeader(cookies), fetch: dependencies.fetch });
       const profile = await http.data<UserProfile>('/user_api/v1/user/get');
-      return action({ profile: { id: profile.user_id, name: profile.user_name }, client: new JuejinClient(http), uploader: new ImageUploader(http) });
+      return action({ profile: { id: profile.user_id, name: profile.user_name }, client: new JuejinClient(http), uploader: new ImageUploader(http, dependencies.fetch) });
     },
     capabilities: [
       writing('draft.create', '上传图片并创建掘金草稿', false),

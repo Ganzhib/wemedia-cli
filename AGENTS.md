@@ -8,6 +8,7 @@
 - Never automatically replay writes after an exception or timeout. Preserve operation receipts and return existing draft/column IDs on failures.
 - Bind tasks to stable platform/account identities; aliases never own sessions or locks. Use AccountRepository.use and Platform.withSession for one locked, verified connection per operation. Do not add old-layout readers or automatic migration.
 - Keep account cookies local, out of logs, fixtures, commits and upload-host requests. Offline tests must use fabricated credentials.
+- PlanningService owns frozen plans and revisions; ObjectStore owns byte integrity. Capture local inputs before opening platform sessions. Prepared payloads contain artifact references, not original paths; drivers must never reread author files after authentication.
 - JSON mode emits one JSON document on stdout for success or stderr for failure. Diagnostic messages go to stderr.
 - Branch names: `ganzhibin/<feature|bugfix|hotfix|refactor|chore|docs|test>/<english-description>`. Check current and existing branches before creation.
 - Commit messages: `<type>(<scope>): <中文描述>`, using `feat`, `fix`, `refactor`, `chore`, `docs`, or `test` according to the actual change.
