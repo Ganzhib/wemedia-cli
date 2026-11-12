@@ -6,10 +6,9 @@ import { CliError } from '../shared/errors.js';
 import { PACKAGE_NAME, PACKAGE_ROOT, VERSION } from '../package.js';
 
 export type SkillAgent = 'shared' | 'claude' | 'cursor';
-export type BundledSkillName = 'wemedia-cli' | 'juejin-cli' | 'drawio-skill';
-const SKILL_NAME = 'wemedia-cli';
+const SKILL_NAME = 'wm';
 const BUNDLED_SKILL = join(PACKAGE_ROOT, 'skills', SKILL_NAME);
-const RECEIPT = '.wemedia-cli-install.json';
+const RECEIPT = '.wm-install.json';
 interface SkillReceipt { package: string; version: string; files: Record<string, string> }
 export interface SkillStatus {
   path: string;
@@ -70,13 +69,12 @@ export async function skillStatus(directory = skillDirectory()): Promise<SkillSt
   return (await inspectInstallation(directory)).status;
 }
 
-export async function installSkill(directory = skillDirectory(), name: BundledSkillName = 'wemedia-cli'): Promise<SkillStatus> {
-  if (!['wemedia-cli', 'juejin-cli', 'drawio-skill'].includes(name)) throw new CliError('INPUT', '未知内置 Skill。');
+export async function installSkill(directory = skillDirectory()): Promise<SkillStatus> {
   const { status, receipt: previous } = await inspectInstallation(directory);
   if (status.state === 'modified' || status.state === 'unmanaged') {
     throw new CliError('INPUT', `已有自定义 Skill，已保留原文件：${directory}。请选择其他目录或先备份并移走该目录。`);
   }
-  const files = await bundledFiles(join(PACKAGE_ROOT, 'skills', name));
+  const files = await bundledFiles();
   const hashes = Object.fromEntries(Object.entries(files).map(([path, content]) => [path, digest(content)]));
   if (previous?.version === VERSION && JSON.stringify(previous.files) === JSON.stringify(hashes)) return status;
   await mkdir(directory, { recursive: true });

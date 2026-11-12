@@ -29,7 +29,7 @@ wm --version
 wm platform list --json
 ```
 
-安装时会将与 CLI 匹配的 Skill 放入支持的 Agent 技能目录，保留已有自定义文件。浏览器在首次登录时自动准备。无需事先运行 Playwright 安装命令。
+安装包只包含名为 wm 的 Skill，默认目录为 ~/.agents/skills/wm/。安装器保留已有自定义文件，不扫描或兼容旧 Skill 目录。浏览器在首次登录时自动准备。无需事先运行 Playwright 安装命令。
 
 ```bash
 wm auth login xiaohongshu
@@ -124,3 +124,5 @@ npm run check:package
 浏览器测试拦截全部请求，不接触真实平台写接口。归档检查从实际 tgz 安装，验证 wm 入口、依赖、schema、认证边界和 Skill。来源基线的协议与回归测试仍保留。
 
 [架构说明](docs/ARCHITECTURE.md) · [完整设计](docs/MULTIPLATFORM_ARCHITECTURE.md) · [SDK 与 AI 使用](docs/AI_USAGE.md) · [开源调研](docs/PLATFORM_RESEARCH.md)
+
+后续通用核心契约见 [设计方案](docs/rfcs/0001-generic-publishing-core.md)，开发顺序与完成条件见 [实施计划](docs/PUBLISHING_CORE_IMPLEMENTATION.md)。

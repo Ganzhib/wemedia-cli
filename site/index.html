@@ -4,537 +4,81 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f7f5ef" />
-    <meta
-      name="description"
-      content="让 AI Agent 通过 juejin CLI 管理掘金文章、Markdown 草稿、图片、专栏、签到抽奖与每日定时任务。安装指南、真实场景与可复制提示词。"
-    />
-    <title>juejin CLI · 让 Agent 接上你的掘金写作</title>
+    <meta name="description" content="wm 是面向 AI Agent 的多平台内容发布 CLI。一个命令与一个 Skill，登录后管理草稿、发布和执行回执。" />
+    <title>wm 多平台内容发布 CLI</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./app.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳到正文</a>
-    <a class="studio-banner" href="https://my.feishu.cn/wiki/Tj4ZwTpEUisrg3kojmbcnR9yn1I?create_from=create_doc_to_wiki" target="_blank" rel="noopener noreferrer" aria-label="淘气工作室：给 AI 找点新活，打开工具箱（新窗口）">
-      <span class="banner-mascot" aria-hidden="true"><span>•</span>ᴗ<span>•</span></span>
-      <span class="banner-copy"><strong>你的 AI，又在等你派活？</strong><span class="banner-detail">淘气工作室 · 给它找点新本事</span></span>
-      <span class="banner-cta">打开工具箱 <span aria-hidden="true">↗</span></span>
-    </a>
     <header class="header wrap">
-      <a class="brand" href="#" aria-label="juejin CLI 首页"
-        ><span class="brand-icon" aria-hidden="true">j_</span> juejin<span
-          class="muted"
-          >/cli</span
-        ></a
-      >
-      <nav aria-label="主导航">
-        <a href="#install">安装</a><a href="#workflow">使用场景</a
-        ><a href="#checkin">每日签到</a><a href="#prompts">提示词</a><a href="#commands">命令</a>
-      </nav>
-      <a
-        class="github"
-        href="https://github.com/Ganzhib/juejin-cli"
-        target="_blank"
-        rel="noreferrer"
-        >GitHub <span aria-hidden="true">↗</span></a
-      >
+      <a class="brand" href="#" aria-label="wm 首页"><span class="brand-icon" aria-hidden="true">wm</span> wm</a>
+      <nav aria-label="主导航"><a href="#install">安装</a><a href="#workflow">使用方式</a><a href="#skill">Skill</a></nav>
+      <a class="github" href="https://github.com/Ganzhib/wemedia-cli" target="_blank" rel="noreferrer">GitHub ↗</a>
     </header>
     <main id="main">
       <section class="hero wrap">
         <div class="hero-copy">
-          <div class="eyebrow">
-            <span class="status-dot"></span> 为你的 AI Agent 准备
-            <span class="version" id="latest-version">npm latest</span>
-          </div>
-          <h1>把掘金写作，<br />接入你的 <span>Agent。</span></h1>
-          <p class="hero-description">
-            从本地 Markdown 到掘金专栏。让 Agent
-            帮你查资料、传图片、存草稿，再把准备好的文章发布出去。签到也可以按你选择的时间执行。
-          </p>
-          <div class="hero-actions">
-            <a class="button primary" href="#install"
-              >开始使用 <span aria-hidden="true">→</span></a
-            ><a class="button secondary" href="#prompts">复制一个提示词</a>
-          </div>
-          <div class="hero-facts">
-            <span>MIT 开源</span><span>本地会话</span
-            ><span>CLI + Agent Skill</span>
-          </div>
+          <div class="eyebrow"><span class="status-dot"></span> 面向 AI Agent <span class="version">源码版本 {{VERSION}}</span></div>
+          <h1>一份内容，<br />交给 <span>wm。</span></h1>
+          <p class="hero-description">一个 CLI，一个同名 Skill。完成平台登录后，让 AI 准备内容、保存草稿、发表并核对每个平台的结果。</p>
+          <div class="hero-actions"><a class="button primary" href="#install">从源码安装 →</a><a class="button secondary" href="#workflow">查看使用方式</a></div>
+          <div class="hero-facts"><span>MIT 开源</span><span>账号隔离</span><span>平台能力发现</span></div>
         </div>
-        <div class="terminal" aria-label="Agent 写作流程示例">
-          <div class="terminal-header">
-            <span class="window-dots" aria-hidden="true"
-              ><i></i><i></i><i></i></span
-            ><span>article.md → 掘金专栏</span
-            ><span class="terminal-tag">示例</span>
-          </div>
+        <div class="terminal" aria-label="wm 操作示例">
+          <div class="terminal-header"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>wm</span><span class="terminal-tag">命令示例</span></div>
           <div class="terminal-content">
-            <div class="terminal-label">YOU</div>
-            <p class="terminal-request">
-              把这篇文章存到掘金草稿，<br />配图一并上传，给我预览链接。
-            </p>
-            <div class="terminal-label agent-label">AGENT</div>
-            <p><span class="terminal-check">✓</span> 核对账号与文章信息</p>
-            <p><span class="terminal-check">✓</span> 上传正文图片与封面</p>
-            <div class="terminal-command">
-              <span>$</span> juejin draft create article.md --json
-            </div>
-            <pre class="terminal-result">
-{
-  <span>"ok"</span>: true,
-  <span>"data"</span>: {
-    <span>"draft_id"</span>: "你的草稿 ID",
-    <span>"preview_url"</span>: "https://juejin.cn/editor/drafts/…"
-  }
-}</pre>
-            <div class="terminal-footer">
-              <span class="status-dot"></span> 草稿已保存，等你检查
-            </div>
+            <div class="terminal-label">先发现能力</div>
+            <pre>wm platform list --json
+wm schema --json
+wm auth login PLATFORM</pre>
+            <div class="terminal-label agent-label">保存草稿</div>
+            <pre>wm draft create article.md --platform PLATFORM --json</pre>
+            <p>PLATFORM 替换为实际平台 ID；先确认该平台支持草稿。</p>
           </div>
         </div>
       </section>
-      <div class="capabilities wrap">
-        <span>文章搜索</span><span>Markdown 正文</span><span>图片上传</span
-        ><span>草稿更新</span><span>专栏管理</span><span>签到抽奖</span><span>每日定时</span><span>JSON 输出</span>
-      </div>
-
       <section id="install" class="section wrap">
-        <div class="section-heading">
-          <div>
-            <div class="eyebrow">01 / QUICK START</div>
-            <h2>装好 CLI，Agent 就有了新技能。</h2>
-          </div>
-          <p>Node.js 22.16+<br />支持 macOS、Linux 与 Windows<br />可通过 npm 全局安装或用 npx 即用。</p>
-        </div>
+        <div class="section-heading"><div><div class="eyebrow">安装</div><h2>安装后登录，日常操作交给 AI。</h2></div><p>需要 Node.js 22.16+。<br />当前提供源码安装，尚未发布 npm 包。</p></div>
         <div class="install-layout">
           <div class="install-panel">
-            <div class="tabs" role="tablist" aria-label="安装方式">
-              <button
-                role="tab"
-                id="tab-ai"
-                aria-selected="true"
-                aria-controls="install-panel"
-                data-install="ai"
-              >
-                AI 帮我安装
-              </button><button
-                role="tab"
-                id="tab-npm"
-                aria-selected="false"
-                aria-controls="install-panel"
-                data-install="npm"
-                tabindex="-1"
-              >
-                npm 全局安装</button
-              ><button
-                role="tab"
-                id="tab-npx"
-                aria-selected="false"
-                aria-controls="install-panel"
-                data-install="npx"
-                tabindex="-1"
-              >
-                npx 即用</button
-              ><button
-                role="tab"
-                id="tab-source"
-                aria-selected="false"
-                aria-controls="install-panel"
-                data-install="source"
-                tabindex="-1"
-              >
-                源码安装
-              </button>
-            </div>
-            <div
-              id="install-panel"
-              role="tabpanel"
-              aria-labelledby="tab-ai"
-              tabindex="0"
-            >
-              <div class="code-heading">
-                <span id="install-label">LET AI DO IT</span
-                ><button
-                  class="copy-button"
-                  id="copy-install"
-                  data-copy="install-command"
-                  aria-label="复制完整安装提示词"
-                >
-                  复制给 AI ↗
-                </button>
-              </div>
-              <pre id="install-code" hidden><code id="install-command">npm install -g {{PACKAGE_NAME}}@latest
-juejin --help</code></pre>
-              <div id="ai-install">
-                <p>复制给 AI，让它帮你装好。</p>
-                <span>发给 Codex、Cursor 或 Claude Code，<br />环境检查、安装和技能配置交给它。</span>
-              </div>
-            </div>
-            <p class="install-note" id="install-note">
-              适用于能操作本机终端的 AI。需要登录验证时，由你在浏览器完成。
-            </p>
-            <a id="latest-download" class="latest-download" href="https://www.npmjs.com/package/{{PACKAGE_NAME}}" target="_blank" rel="noopener noreferrer">在 npm 查看最新版 ↗</a>
+            <div class="code-heading"><span>TERMINAL</span><button class="copy-button" data-copy="install-command">复制命令</button></div>
+            <pre><code id="install-command">git clone https://github.com/Ganzhib/wemedia-cli.git
+cd wemedia-cli
+npm ci
+npm link
+wm --version
+wm skill status --json</code></pre>
+            <p class="install-note">首次登录时自动准备浏览器。扫码由你完成，后台表单由 CLI 操作。</p>
           </div>
-          <aside class="skill-panel">
-            <span class="small-badge">SKILL INCLUDED</span>
-            <h3>不用再教 Agent<br />每一条命令。</h3>
-            <p>
-              Codex 与 Cursor 使用共享技能目录。检测到 Claude Code
-              目录时，也会自动安装对应 Skill。
-            </p>
-            <code>~/.agents/skills/juejin-cli/</code>
-            <p class="small">
-              首次运行会补装写作与绘图 Skill，适用于禁用安装脚本和 npx
-              的情况。已有自定义文件会保留。绘图脚本需要 Python 3，图片导出需要 draw.io Desktop。
-            </p>
-            <a href="./skill/SKILL.md" target="_blank" rel="noreferrer"
-              >查看 Skill 内容 <span aria-hidden="true">↗</span></a
-            >
+          <aside id="skill" class="skill-panel">
+            <span class="small-badge">ONE SKILL</span><h3>唯一入口 wm</h3>
+            <p>平台能力通过 CLI 发现，必要的平台内容说明按需读取。已有自定义文件会保留。</p>
+            <code>~/.agents/skills/wm/</code>
+            <p class="small">其他 Agent 可使用 wm skill install --agent claude 或自定义技能根目录。</p>
+            <a href="./skill/SKILL.md" target="_blank" rel="noreferrer">查看 wm Skill ↗</a>
           </aside>
         </div>
-        <div class="setup-steps">
-          <article>
-            <span class="step-number">1</span>
-            <h3>安装浏览器</h3>
-            <p>首次登录前下载 Chromium。</p>
-            <div class="inline-code">
-              <code>juejin auth setup</code
-              ><button
-                data-text="juejin auth setup"
-                class="icon-copy"
-                aria-label="复制浏览器安装命令"
-              >
-                复制
-              </button>
-            </div>
-          </article>
-          <article>
-            <span class="step-number">2</span>
-            <h3>登录掘金</h3>
-            <p>在打开的窗口中完成登录，会话保存在本机。</p>
-            <div class="inline-code">
-              <code>juejin auth login</code
-              ><button
-                data-text="juejin auth login"
-                class="icon-copy"
-                aria-label="复制登录命令"
-              >
-                复制
-              </button>
-            </div>
-          </article>
-          <article>
-            <span class="step-number">3</span>
-            <h3>交给你的 Agent</h3>
-            <p>使用下面的提示词，或先检查 Skill 安装状态。</p>
-            <div class="inline-code">
-              <code>juejin skill status --json</code
-              ><button
-                data-text="juejin skill status --json"
-                class="icon-copy"
-                aria-label="复制 Skill 检查命令"
-              >
-                复制
-              </button>
-            </div>
-          </article>
-        </div>
       </section>
-
-      <section id="workflow" class="section workflow-section">
-        <div class="wrap">
-          <div class="section-heading">
-            <div>
-              <div class="eyebrow">02 / FROM FILE TO COLUMN</div>
-              <h2>一篇文章，一条清楚的路径。</h2>
-            </div>
-            <a href="./examples/article.md" download
-              >下载 Markdown 示例 <span aria-hidden="true">↓</span></a
-            >
-          </div>
-          <div class="workflow-grid">
-            <article>
-              <span class="workflow-index">01</span>
-              <h3>本地写作</h3>
-              <p>
-                在 Markdown 里写好标题、摘要、分类与标签，图片使用本地路径。
-              </p>
-              <code>article.md</code>
-            </article>
-            <article>
-              <span class="workflow-index">02</span>
-              <h3>保存草稿</h3>
-              <p>检查内容，上传图片和封面，取得可继续编辑的草稿 ID。</p>
-              <code>juejin draft create article.md</code>
-            </article>
-            <article>
-              <span class="workflow-index">03</span>
-              <h3>检查与修改</h3>
-              <p>打开预览链接检查排版。继续修改时，更新同一份草稿。</p>
-              <code>juejin draft update DRAFT_ID article.md</code>
-            </article>
-            <article>
-              <span class="workflow-index">04</span>
-              <h3>发布到专栏</h3>
-              <p>指定专栏 ID，发布已有草稿。返回提交结果后核对审核状态。</p>
-              <code>juejin article publish --draft … --columns …</code>
-            </article>
-          </div>
-          <div class="workflow-note">
-            <span aria-hidden="true">↳</span>
-            <p>
-              已经有专栏，就直接使用；还没有，用
-              <code>juejin column create</code>
-              新建。保存草稿与正式发布是两个独立命令。
-            </p>
-          </div>
-        </div>
-      </section>
-
-
-      <section id="checkin" class="section wrap">
-        <div class="section-heading">
-          <div>
-            <div class="eyebrow">03 / YOUR DAILY ROUTINE</div>
-            <h2>想起来时签到，也可以交给时间。</h2>
-          </div>
-          <p>查状态、签一次，或选择每天执行。<br />时间由你设置，任务随时关闭。</p>
+      <section id="workflow" class="section wrap">
+        <div class="section-heading"><div><div class="eyebrow">自然语言使用</div><h2>说明内容、账号和目标操作。</h2></div><p>每个平台分别记录结果。<br />提交受理与最终展示分别核对。</p></div>
+        <div class="prompt-panel">
+          <label class="prompt-label" for="prompt-text">复制给 AI 后替换文件路径和目标平台</label>
+          <textarea id="prompt-text" rows="5" spellcheck="false">使用 wm，把我的 article.md 保存为指定平台的草稿。先读取平台能力并核对账号，预览内容和检查图片；只存草稿，返回任务与草稿 ID。</textarea>
+          <button class="button primary" data-copy="prompt-text">复制提示词</button>
         </div>
         <div class="command-grid">
-          <article>
-            <h3>先看今天，再签到</h3>
-            <p>查询今日状态、连续天数、月度记录、矿石与补签卡。已签到时自动跳过。</p>
-            <pre>juejin checkin status --json
-juejin checkin run --json
-juejin checkin balance --json</pre>
-          </article>
-          <article>
-            <h3>用一条命令，开启每日签到</h3>
-            <p>支持 macOS、Windows 和 systemd Linux。采用电脑本地时区，同名任务更新，不重复创建。</p>
-            <pre>juejin checkin schedule enable --at 09:00 --name daily
-juejin checkin schedule status --name daily
-juejin checkin schedule disable --name daily</pre>
-          </article>
+          <article><h3>本地预览</h3><pre>wm article preview article.md --platform PLATFORM --json</pre></article>
+          <article><h3>指定目标发表</h3><pre>wm article publish article.md --to PLATFORM:main --json</pre></article>
+          <article><h3>查询与恢复</h3><pre>wm job get JOB_ID --json
+wm job refresh JOB_ID --json
+wm job resume JOB_ID --json</pre></article>
         </div>
-        <div class="details-row">
-          <div><h3>任务只做签到</h3><p>每次启动后检查当天状态，执行一次后退出。补签和抽奖由你单独选择。</p></div>
-          <div><h3>记录留在本机</h3><p>结果和错误写入任务日志；登录过期时重新登录。电脑需联网且用户环境可用。</p></div>
-          <div><h3>抽奖前，先看消耗</h3><p>查看免费次数、奖池、幸运值与中奖记录。单抽和十连抽都需明确允许扣矿石，规则以平台为准。</p></div>
-        </div>
-      </section>
-
-      <section id="prompts" class="section wrap">
-        <div class="section-heading">
-          <div>
-            <div class="eyebrow">04 / COPY. PASTE. CREATE.</div>
-            <h2>选个场景，复制给 Agent。</h2>
-          </div>
-          <p>替换文件和目标信息，<br />也可以直接编辑完整提示词。</p>
-        </div>
-        <div class="prompt-layout">
-          <div
-            class="scenario-list"
-            role="tablist"
-            aria-label="使用场景"
-            aria-orientation="vertical"
-          >
-            <button
-              class="scenario selected"
-              role="tab"
-              id="scenario-draft"
-              aria-selected="true"
-              aria-controls="prompt-panel"
-              data-scenario="draft"
-            >
-              <span class="scenario-icon">01</span
-              ><span
-                ><strong>把文章存为草稿</strong
-                ><small>本地 Markdown → 可预览草稿</small></span
-              ><span aria-hidden="true">↗</span>
-            </button>
-            <button
-              class="scenario"
-              role="tab"
-              id="scenario-publish"
-              aria-selected="false"
-              aria-controls="prompt-panel"
-              data-scenario="publish"
-              tabindex="-1"
-            >
-              <span class="scenario-icon">02</span
-              ><span
-                ><strong>发布到我的专栏</strong
-                ><small>复用草稿，指定专栏发布</small></span
-              ><span aria-hidden="true">↗</span>
-            </button>
-            <button
-              class="scenario"
-              role="tab"
-              id="scenario-column"
-              aria-selected="false"
-              aria-controls="prompt-panel"
-              data-scenario="column"
-              tabindex="-1"
-            >
-              <span class="scenario-icon">03</span
-              ><span
-                ><strong>建立一个新专栏</strong
-                ><small>名称、简介与封面一起准备</small></span
-              ><span aria-hidden="true">↗</span>
-            </button>
-            <button
-              class="scenario"
-              role="tab"
-              id="scenario-research"
-              aria-selected="false"
-              aria-controls="prompt-panel"
-              data-scenario="research"
-              tabindex="-1"
-            >
-              <span class="scenario-icon">04</span
-              ><span
-                ><strong>从热榜找写作灵感</strong
-                ><small>热点查询 → 有来源的选题</small></span
-              ><span aria-hidden="true">↗</span>
-            </button>
-            <button class="scenario" role="tab" id="scenario-checkin" aria-selected="false" aria-controls="prompt-panel" data-scenario="checkin" tabindex="-1">
-              <span class="scenario-icon">05</span><span><strong>每天帮我签到</strong><small>设置时间，查看任务，随时关闭</small></span><span aria-hidden="true">↗</span>
-            </button>
-          </div>
-          <div
-            class="prompt-panel"
-            id="prompt-panel"
-            role="tabpanel"
-            aria-labelledby="scenario-draft"
-          >
-            <div class="prompt-fields">
-              <label id="field-path"
-                >文章路径<input
-                  id="article-path"
-                  value="./article.md"
-                  autocomplete="off"
-                  spellcheck="false" /></label
-              ><label id="field-target"
-                >目标专栏<input
-                  id="column-name"
-                  value="AI 工程实践"
-                  autocomplete="off"
-              /></label>
-            </div>
-            <div class="prompt-label">
-              <label for="prompt-text">给 Agent 的完整提示词</label
-              ><span>可编辑</span>
-            </div>
-            <textarea id="prompt-text" spellcheck="false" rows="9">
-使用 juejin-cli，将 ./article.md 保存为掘金草稿。先核对登录账号，检查文章元数据、分类标签、本地图片和封面。缺少必要信息时告诉我具体缺什么。创建成功后返回 draft_id 和预览链接，暂不发布。</textarea>
-            <div class="prompt-bottom">
-              <span id="prompt-hint">这个场景只保存草稿。</span
-              ><button class="button primary" id="copy-prompt">
-                复制提示词 <span aria-hidden="true">↗</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        <p class="agent-note">
-          Skill 已安装但尚未出现在 Agent 中时，重新开启会话。Claude Code
-          可手动运行 <code>juejin skill install --agent claude</code>。
-        </p>
-      </section>
-
-      <section id="commands" class="section wrap commands-section">
-        <div class="section-heading">
-          <div>
-            <div class="eyebrow">05 / KEEP IT SCRIPTABLE</div>
-            <h2>也可以，直接在终端里用。</h2>
-          </div>
-          <a
-            href="https://github.com/Ganzhib/juejin-cli#readme"
-            target="_blank"
-            rel="noreferrer"
-            >完整文档 <span aria-hidden="true">↗</span></a
-          >
-        </div>
-        <div class="command-grid">
-          <article>
-            <h3>查资料</h3>
-            <pre>
-juejin article search "TypeScript" --json
-juejin article get ARTICLE_ID --format markdown
-juejin hot --category frontend --json</pre>
-          </article>
-          <article>
-            <h3>管专栏</h3>
-            <pre>
-juejin column list --json
-juejin column create --title "实践笔记" --intro "我的技术实践" --json
-juejin column update COLUMN_ID --intro "新的简介" --json</pre>
-          </article>
-          <article>
-            <h3>写文章</h3>
-            <pre>
-juejin draft create article.md --dry-run --json
-juejin draft create article.md --json
-juejin article publish --draft DRAFT_ID --columns COLUMN_ID --json</pre>
-          </article>
-          <article>
-            <h3>检查状态</h3>
-            <pre>
-juejin auth status --json
-juejin skill status --json
-juejin history --json</pre>
-          </article>
-
-          <article><h3>签到与补签</h3><pre>juejin checkin stats --json
-juejin checkin calendar --json
-juejin checkin supplement YYYY-MM-DD --dry-run --json</pre></article>
-          <article><h3>管理每日任务</h3><pre>juejin checkin schedule enable --at 09:00
-juejin checkin schedule status
-juejin checkin schedule disable</pre></article>
-          <article><h3>抽奖前看消耗</h3><pre>juejin lottery status --json
-juejin lottery draw --dry-run --json
-juejin lottery draw --count 1 --allow-spend --json</pre></article>
-          <article><h3>奖品与幸运值</h3><pre>juejin lottery history --json
-juejin lottery lucky --json
-juejin lottery rules --json</pre></article>
-        </div>
-        <div class="details-row">
-          <div>
-            <h3>结构化输出</h3>
-            <p><code>--json</code> 为 Agent 和脚本提供稳定的结果与错误信息。</p>
-          </div>
-          <div>
-            <h3>结果可以追踪</h3>
-            <p>写入回执保存在本地；请求超时后先查询状态，再决定是否重试。</p>
-          </div>
-          <div>
-            <h3>自己的账号，自己的会话</h3>
-            <p>凭据保存在本机。工具基于掘金网页接口，写入可能需要审核。</p>
-          </div>
-        </div>
+        <p class="agent-note">结果未知时先回查，不重复发送。平台强制要求身份验证时，CLI 会提示扫码。当前线上验收范围见仓库验收记录。</p>
       </section>
     </main>
-    <footer class="wrap footer">
-      <a class="brand" href="#"
-        ><span class="brand-icon" aria-hidden="true">j_</span> juejin<span
-          class="muted"
-          >/cli</span
-        ></a
-      >
-      <p>写作在本地，发布有路径。</p>
-      <div>
-        <a
-          href="https://github.com/Ganzhib/juejin-cli"
-          target="_blank"
-          rel="noreferrer"
-          >源代码 ↗</a
-        ><a
-          href="https://www.npmjs.com/package/{{PACKAGE_NAME}}"
-          target="_blank"
-          rel="noreferrer"
-          >npm ↗</a
-        ><span>MIT · <span id="footer-version">npm latest</span></span>
-      </div>
-    </footer>
+    <footer class="wrap footer"><a class="brand" href="#">wm</a><p>多平台内容管理</p><div><a href="https://github.com/Ganzhib/wemedia-cli">源代码 ↗</a><span>MIT · {{VERSION}}</span></div></footer>
     <div id="copy-status" class="toast" role="status" aria-live="polite"></div>
   </body>
 </html>
