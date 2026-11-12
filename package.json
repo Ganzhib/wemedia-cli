@@ -1,6 +1,6 @@
 {
   "name": "@ganzhibin/wemedia-cli",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "description": "AI-native multi-platform publishing CLI for Juejin, Xiaohongshu and WeChat",
   "type": "module",
   "license": "MIT",

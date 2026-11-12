@@ -21,7 +21,7 @@ test('a custom capability executes without article fields or platform branches',
   await service.run(job.id);
   assert.equal(writes, 1);
   assert.deepEqual(platform.counts, { sessions: 1, closes: 1 });
-  if (process.platform !== 'win32') assert.equal((await stat(join(home, 'tasks', job.id, 'job.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(join(home, 'jobs', job.id, 'job.json'))).mode & 0o777, 0o600);
 });
 
 test('unsupported capabilities and malformed input fail before opening any session', async t => {
@@ -80,7 +80,7 @@ test('an uncertain direct write is durably recorded even without driver step cal
   assert.deepEqual((await service.run(job.id)).targets.map(target => target.status), ['published', 'unknown']);
   await service.run(job.id);
   assert.equal(writes, 1);
-  const events = await readFile(join(home, 'tasks', job.id, 'events.jsonl'), 'utf8');
+  const events = await readFile(join(home, 'jobs', job.id, 'events.jsonl'), 'utf8');
   assert.ok(!events.includes('Original content'));
   assert.ok(!events.includes('Cookie'));
 });
@@ -108,7 +108,7 @@ test('interrupted running steps and incomplete remote evidence never cause a new
   const { service, home } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
   job.targets[0].steps.send = { phase: 'running' }; job.targets[0].remote = { kind: 'draft', id: 'saved' };
-  await writeJson(join(home, 'tasks', job.id, 'job.json'), job);
+  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
   assert.equal((await service.run(job.id)).targets[0].status, 'unknown');
   assert.equal((await service.refresh(job.id)).targets[0].status, 'unknown');
   await service.run(job.id); assert.equal(writes, 0);
@@ -125,12 +125,12 @@ test('stored payloads and driver revisions are checked before any connection', a
   const one = platformFixture('one', async () => ({ status: 'published' }));
   const { service, home } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
-  job.targets[0].prepared = { body: 42 };
-  await writeJson(join(home, 'tasks', job.id, 'job.json'), job);
+  job.targets[0].variantId = '0'.repeat(64);
+  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
   await assert.rejects(service.run(job.id), (error: CliError) => error.code === 'INPUT');
-  job.targets[0].prepared = input; job.targets[0].driver.version = 'different';
+  job.targets[0].variantId = (await service.planning.get(job.planId)).targets[0].variantId; job.targets[0].driver.version = 'different';
   assert.equal(one.platform.driver.version, '2');
-  await writeJson(join(home, 'tasks', job.id, 'job.json'), job);
+  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
   assert.equal((await service.get(job.id)).id, job.id);
   await assert.rejects(service.run(job.id), /版本/);
   assert.equal(one.counts.sessions, 0);

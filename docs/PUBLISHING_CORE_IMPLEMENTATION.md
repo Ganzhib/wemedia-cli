@@ -33,6 +33,8 @@
 
 ## 0.2 第二批 内容快照与计划
 
+0.2.0-alpha.2 已贯通 ObjectStore、PreparationContext、ContentRevision、PreparedVariant 与 PlanningService。article plan 和通用 plan create/inspect/run 可冻结和审阅计划，三个平台从稳定资产引用执行；原稿删除、原图在认证期间变动、工作目录移动、实际产物变化和快照损坏均有回归测试。当前工作流快照记录能力级执行入口，第三批继续展开为通用步骤执行器。
+
 增加内容导入器、对象存储、ContentRevision、PreparedVariant 与计划服务。修改 publishing 服务，使各平台使用不可变快照，而不是在认证后读取原始文件。
 
 计划记录身份、输入、实际平台产物、工作流及驱动版本。preview 仍可离线运行。平台上传限制由平台校验器负责，公共资产层不继承任一平台的数量或大小规则。

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createWmProgram } from '../src/cli/wm-program.js';
+import { createWmProgram, runWmCli } from '../src/cli/wm-program.js';
+import { PlatformRegistry } from '../src/core/registry.js';
 import { CliError } from '../src/shared/errors.js';
 import { fixture, platformFixture } from './helpers.js';
 
@@ -60,4 +61,23 @@ test('a single capability schema is discoverable offline with input defaults pre
   const schema = result.platforms[0].capabilities[0].input_schema;
   assert.equal(schema.properties.limit.default, 20);
   assert.ok(!(schema.required ?? []).includes('limit'));
+});
+
+test('the generic plan commands prepare offline and later execute the frozen input', async t => {
+  const one = platformFixture('one', async () => ({ status: 'published' }));
+  const { home } = await fixture(t, [one]);
+  const path = join(home, 'input.json');
+  await writeFile(path, JSON.stringify({ body: 'Frozen CLI content' }));
+  let stdout = '', stderr = '';
+  const streams = { stdout: { write: (value: string) => { stdout += value; } }, stderr: { write: (value: string) => { stderr += value; } } };
+  const registry = new PlatformRegistry([one.platform]);
+  assert.equal(await runWmCli(['--home', home, 'plan', 'create', 'newsletter.send', '--to', 'one', '--input', path, '--json'], { streams, registry }), 0, stderr);
+  const id = JSON.parse(stdout).data.id; assert.equal(one.counts.sessions, 0);
+  stdout = ''; await writeFile(path, JSON.stringify({ body: 'Changed input' }));
+  assert.equal(await runWmCli(['--home', home, 'plan', 'inspect', id, '--json'], { streams, registry }), 0, stderr);
+  assert.equal(JSON.parse(stdout).data.targets[0].prepared.body, 'Frozen CLI content');
+  stdout = '';
+  assert.equal(await runWmCli(['--home', home, 'plan', 'run', id, '--json'], { streams, registry }), 0, stderr);
+  assert.equal(JSON.parse(stdout).data.plan_id, id);
+  assert.equal(one.counts.sessions, 1);
 });

@@ -1,3 +1,4 @@
+import type { ArtifactReader } from '../../core/content.js';
 import { operationResultSchema } from '../../core/types.js';
 import { JSDOM } from 'jsdom';
 import createDOMPurify from 'dompurify';
@@ -7,7 +8,7 @@ import type { AccountProfile, CapabilityContext, OperationResult, RemoteReferenc
 import { definePlatform } from '../../core/platform.js';
 import { readCapability, writeCapability } from '../../core/capability.js';
 import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
-import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preflightArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
+import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
 import { omitRepeatedTitle } from '../../content/markdown.js';
 import { withAccountBrowser, navigatePlatform, reloadPlatform } from '../../runtime/managed-browser.js';
 import { CliError } from '../../shared/errors.js';
@@ -48,11 +49,11 @@ export async function prepareWechat(document: ArticleDocument, options: z.infer<
   const title = documentTitle(document, options);
   if (Array.from(title).length > 64) throw new CliError('INPUT', '公众号标题最多 64 字，不会自动截断。');
   const assets = await documentAssets(document, options);
-  if (assets.some(asset => !asset.path)) throw new CliError('INPUT', '公众号正文图片请先保存到本地，以便通过编辑器上传。');
+  if (assets.some(asset => !asset.artifact)) throw new CliError('INPUT', '公众号正文图片请先保存到本地，以便通过编辑器上传。');
   const coverSource = options.cover ?? assets[0]?.source;
   if (!coverSource) throw new CliError('INPUT', '请提供公众号封面或至少一张正文图片。');
   const cover = await assetFrom(coverSource, document);
-  if (!cover.path) throw new CliError('INPUT', '公众号封面需要本地图片。');
+  if (!cover.artifact) throw new CliError('INPUT', '公众号封面需要本地图片。');
   const { renderStyledContent } = await import('@wenyan-md/core/wrapper');
   const rendered = await renderStyledContent(omitRepeatedTitle(document.markdown, title), {
     themeId: options.theme ?? 'default', hlThemeId: 'github', isMacStyle: false, isAddFootnote: true,
@@ -60,8 +61,12 @@ export async function prepareWechat(document: ArticleDocument, options: z.infer<
   // Source HTML enters an authenticated editor. Strip active content before preview or insertion.
   const window = new JSDOM('').window;
   const body = createDOMPurify(window).sanitize(rendered, { FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form'] });
+  const normalized = new JSDOM(body);
+  for (const image of normalized.window.document.querySelectorAll('img')) image.setAttribute('src', (await assetFrom(decodeURI(image.getAttribute('src') ?? ''), document)).source);
+  const html = normalized.window.document.body.innerHTML;
+  normalized.window.close();
   window.close();
-  return { title, body, format: 'text/html', assets, cover, options: {
+  return { title, body: html, format: 'text/html', assets, cover, options: {
     author: options.author ?? '', summary: options.summary ?? options.brief ?? '',
   } };
 }
@@ -94,15 +99,15 @@ export async function insertWechatHtml(page: Page, html: string): Promise<void> 
   if (!inserted) throw new CliError('PROTOCOL', '公众号正文未进入编辑器，停止保存。');
 }
 
-function placeholderHtml(article: WechatArticle): { html: string; images: { marker: string; path: string }[] } {
+function placeholderHtml(article: WechatArticle, artifacts: ArtifactReader): { html: string; images: { marker: string; path: string }[] } {
   const dom = new JSDOM(article.body);
   const images: { marker: string; path: string }[] = [];
   for (const image of dom.window.document.querySelectorAll('img')) {
     const source = decodeURI(image.getAttribute('src') ?? '');
-    const asset = article.assets.find(asset => asset.source === source || asset.path === source);
-    if (!asset?.path) throw new CliError('INPUT', '正文图片不在已校验的资产清单中：' + source);
-    const marker = 'WM_IMAGE_' + images.length + '_' + asset.digest!.slice(0, 16);
-    images.push({ marker, path: asset.path });
+    const asset = article.assets.find(asset => asset.source === source);
+    if (!asset?.artifact) throw new CliError('INPUT', '正文图片不在已校验的资产清单中：' + source);
+    const marker = 'WM_IMAGE_' + images.length + '_' + asset.artifact.digest.slice(0, 16);
+    images.push({ marker, path: artifacts.path(asset.artifact) });
     image.replaceWith(dom.window.document.createTextNode(marker));
   }
   return { html: dom.window.document.body.innerHTML, images };
@@ -163,11 +168,11 @@ export async function saveWechatDraft(page: Page): Promise<RemoteReference> {
   return { kind: 'draft', id };
 }
 
-export async function composeWechatDraft(context: BrowserContext, home: Page, article: WechatArticle, onSaved?: (remote: RemoteReference) => Promise<void>): Promise<RemoteReference> {
+export async function composeWechatDraft(context: BrowserContext, home: Page, article: WechatArticle, artifacts: ArtifactReader, onSaved?: (remote: RemoteReference) => Promise<void>): Promise<RemoteReference> {
   const page = await newEditor(context, home);
   await page.locator('#title').fill(article.title);
   if (article.options.author) await page.locator('#author').fill(article.options.author);
-  const prepared = placeholderHtml(article);
+  const prepared = placeholderHtml(article, artifacts);
   await insertWechatHtml(page, prepared.html);
   const uploaded = new Map<string, string>();
   for (const image of prepared.images) {
@@ -183,11 +188,11 @@ export async function composeWechatDraft(context: BrowserContext, home: Page, ar
       }, existing);
     } else uploaded.set(image.path, await uploadIntoEditor(page, image.path));
   }
-  let cover = uploaded.get(article.cover!.path!);
+  let cover = uploaded.get(artifacts.path(article.cover!.artifact!));
   let extraCover = false;
   if (!cover) {
     await page.locator(EDITOR).press('ControlOrMeta+End');
-    cover = await uploadIntoEditor(page, article.cover!.path!);
+    cover = await uploadIntoEditor(page, artifacts.path(article.cover!.artifact!));
     extraCover = true;
   }
   await chooseCover(page, cover);
@@ -246,7 +251,7 @@ export async function publishWechatDraft(page: Page, draft: RemoteReference): Pr
 
 async function writeWechat(context: CapabilityContext<WechatSession>, article: WechatArticle, publish: boolean): Promise<OperationResult> {
   const { browser, page } = context.session;
-  const draft = await context.step('draft.create', () => composeWechatDraft(browser, page, article, remote => context.remember(remote)));
+  const draft = await context.step('draft.create', () => composeWechatDraft(browser, page, article, context.artifacts, remote => context.remember(remote)));
   await context.remember(draft);
   if (!publish) return { status: 'draft_saved', remote: draft };
   return context.step('article.publish', () => publishWechatDraft(page, draft));
@@ -290,7 +295,7 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
   const acceptance = { offline: true, liveRead: false, liveWrite: false };
   const writing = (id: string, description: string, publish: boolean) => writeCapability<WechatSession>()({
     id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(wechatOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
-    prepare: raw => prepareArticle(raw, 'wechat', wechatOptionsSchema, prepareWechat), preflight: preflightArticle,
+    prepare: (raw, context) => prepareArticle(raw, context, 'wechat', wechatOptionsSchema, prepareWechat), preflight: async () => undefined,
     execute: (context, article) => writeWechat(context, article, publish),
     inspect: async ({ session }, remote, expected) => {
       if (remote.kind === 'draft') {
@@ -305,7 +310,7 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
     },
   });
   return definePlatform<WechatSession>({
-    id: 'wechat', name: '微信公众号', driver: { id: 'wechat.browser', version: '2' },
+    id: 'wechat', name: '微信公众号', driver: { id: 'wechat.browser', version: '3' },
     login: directory => browser({ directory }, (_context, page) => wechatProfile(page, true)),
     withSession: (account, action) => browser(account, async (context, page) => action({ profile: await wechatProfile(page), browser: context, page })),
     capabilities: [

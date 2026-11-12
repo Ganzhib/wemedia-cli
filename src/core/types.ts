@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ArtifactReader } from './content.js';
 
 export const accountProfileSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
 export type AccountProfile = z.infer<typeof accountProfileSchema>;
@@ -24,6 +25,7 @@ export const operationResultSchema = z.object({
 export type OperationResult = z.infer<typeof operationResultSchema>;
 export interface OperationContext {
   account: AccountScope;
+  artifacts: ArtifactReader;
   step<T>(name: string, action: () => Promise<T>): Promise<T>;
   remember(remote: RemoteReference): Promise<void>;
 }

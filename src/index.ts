@@ -10,3 +10,9 @@ export type { PublishJob, TargetJob, StepRecord } from './services/publishing.js
 export { AccountRepository } from './runtime/accounts.js';
 export { createWmProgram, runWmCli } from './cli/wm-program.js';
 export { defaultRegistry } from './platform/builtins.js';
+
+export { PlanningService } from './services/planning.js';
+export type { PublishPlan, PlanTarget } from './services/planning.js';
+export type { Artifact, ArtifactReader, ArtifactStore, ContentPreparation, ContentRevision, PreparedVariant } from './core/content.js';
+export { PreparationContext } from './content/preparation.js';
+export { ObjectStore } from './runtime/objects.js';

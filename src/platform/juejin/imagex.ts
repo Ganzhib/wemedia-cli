@@ -18,11 +18,14 @@ const SERVICE_ID = '73owjymdk6';
 const ALLOWED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
 
 export async function validateImage(path: string): Promise<void> {
-  if (!ALLOWED_EXTENSIONS.has(extname(path).toLowerCase())) throw new CliError('INPUT', `不支持的图片格式：${path}`);
   const info = await stat(path);
-  if (!info.isFile() || info.size === 0 || info.size > 5 * 1024 * 1024) {
-    throw new CliError('INPUT', `图片必须为非空文件且不超过 5 MiB：${path}`);
-  }
+  if (!info.isFile()) throw new CliError('INPUT', '图片必须为文件。');
+  validateImageMetadata(extname(path).toLowerCase(), info.size);
+}
+
+export function validateImageMetadata(extension: string, size: number): void {
+  if (!ALLOWED_EXTENSIONS.has(extension)) throw new CliError('INPUT', '掘金不支持此图片格式：' + extension);
+  if (size === 0 || size > 5 * 1024 * 1024) throw new CliError('INPUT', '掘金图片必须非空且不超过 5 MiB。');
 }
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }

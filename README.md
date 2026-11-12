@@ -4,7 +4,7 @@
 
 基于 [Ganzhib/juejin-cli](https://github.com/Ganzhib/juejin-cli) 派生，保留来源历史和 MIT 许可证。公众号排版使用文颜 core；浏览器流程分别适配宝玉和小红书开源实现，来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-当前开发版本为 0.2.0-alpha.1。新账号身份和任务格式直接替换旧结构，首次使用该版本需要重新登录；不会读取旧布局或自动搬迁凭据。
+当前开发版本为 0.2.0-alpha.2。账号和任务格式直接替换旧结构，不读取旧布局或自动搬迁数据。账号继续使用第一批建立的身份绑定。
 
 ## 当前能力
 
@@ -51,6 +51,11 @@ wm auth status --json
 wm article preview article.md --platform wechat --output preview.json --json
 wm article publish article.md --to juejin:main,wechat:main --dry-run --json
 
+# 冻结内容和目标，审阅实际产物后执行
+wm article plan article.md --to wechat:main --intent draft --json
+wm plan inspect PLAN_ID --json
+wm plan run PLAN_ID --json
+
 # 保存公众号草稿
 wm draft create article.md --platform wechat --json
 
@@ -63,7 +68,7 @@ wm article list --platform xiaohongshu --limit 20 --json
 wm draft list --platform wechat --json
 ```
 
-同一源文件、内容版本、操作和目标复用已有任务。明确需要再发一份时传 `--new-copy`。不同平台独立保存进度，一个失败不会自动撤回其他平台已提交的内容。
+相同内容修订、实际平台产物、操作和目标复用已有计划与任务。源文件位置、账号别名、目标顺序及 CLI 版本不参与计划身份。正文和本地图片按摘要保存；执行旧计划不再读取原文件，修改或移走原稿不会改变旧计划。HTTP(S) 图片仅冻结 URL，不宣称冻结远端字节。明确再发一份时传 `--new-copy`。
 
 ## Markdown 格式
 

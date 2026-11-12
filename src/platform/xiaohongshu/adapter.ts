@@ -1,3 +1,4 @@
+import type { ArtifactReader } from '../../core/content.js';
 import { operationResultSchema } from '../../core/types.js';
 import { errors, type Page } from 'playwright';
 import { z } from 'zod';
@@ -5,7 +6,7 @@ import type { AccountProfile, CapabilityContext, OperationResult } from '../../c
 import { definePlatform } from '../../core/platform.js';
 import { readCapability, writeCapability } from '../../core/capability.js';
 import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
-import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preflightArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
+import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
 import { omitRepeatedTitle } from '../../content/markdown.js';
 import { withAccountBrowser, navigatePlatform } from '../../runtime/managed-browser.js';
 import { CliError } from '../../shared/errors.js';
@@ -53,18 +54,18 @@ export async function prepareXhs(document: ArticleDocument, options: z.infer<typ
   const cover = options.cover;
   if (cover && !assets.some(asset => asset.source === cover)) assets.unshift(await assetFrom(cover, document));
   if (!assets.length || assets.length > LIMITS.images) throw new CliError('INPUT', '小红书图文需要 1–18 张图片。');
-  if (assets.some(asset => !asset.path)) throw new CliError('INPUT', '小红书图片请使用本地文件，避免发布时下载远程内容发生变化。');
+  if (assets.some(asset => !asset.artifact)) throw new CliError('INPUT', '小红书图片请使用本地文件，避免发布时下载远程内容发生变化。');
   const tags = options.tags ?? [];
   const visibility = options.visibility ?? '公开可见';
   return { title, body, format: 'xiaohongshu/image-text', assets, options: { tags, visibility } };
 }
 
-async function fillXhs(page: Page, article: XhsArticle): Promise<void> {
+async function fillXhs(page: Page, article: XhsArticle, artifacts: ArtifactReader): Promise<void> {
   await navigatePlatform(page, PUBLISH);
   if (new URL(page.url()).pathname.includes('login')) throw new CliError('AUTH', '小红书创作者中心需要登录，请运行 wm auth login xiaohongshu。');
   const tab = page.locator('div.creator-tab').filter({ hasText: '上传图文', visible: true }).first();
   await tab.click();
-  await page.locator('input[type="file"]').first().setInputFiles(article.assets.map(asset => asset.path!));
+  await page.locator('input[type="file"]').first().setInputFiles(article.assets.map(asset => artifacts.path(asset.artifact!)));
   await page.waitForFunction(count => document.querySelectorAll('.img-preview-area .pr').length >= count, article.assets.length, { timeout: 90_000 });
   await page.locator('div.d-input input').fill(article.title);
   const editor = page.locator(EDITOR).first();
@@ -122,7 +123,7 @@ export async function submitXhs(page: Page, timeoutMs = 60_000): Promise<Operati
 
 async function publishXhs(context: CapabilityContext<XhsSession>, article: XhsArticle): Promise<OperationResult> {
   return context.step('note.publish', async () => {
-    await fillXhs(context.session.page, article);
+    await fillXhs(context.session.page, article, context.artifacts);
     return submitXhs(context.session.page);
   });
 }
@@ -143,7 +144,7 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
   const browser = dependencies.withBrowser ?? withAccountBrowser;
   const acceptance = { offline: true, liveRead: false, liveWrite: false };
   return definePlatform<XhsSession>({
-    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '2' },
+    id: 'xiaohongshu', name: '小红书', driver: { id: 'xiaohongshu.browser', version: '3' },
     login: directory => browser({ directory }, async (_context, page) => {
       const profile = await xhsProfile(page, true);
       await navigatePlatform(page, PUBLISH);
@@ -158,8 +159,8 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
       writeCapability<XhsSession>()({
         successStates: ['submitted', 'published'], id: 'content.publish', description: '上传图集、正式话题与可见范围并提交笔记', acceptance,
         input: articleInputSchema(xhsOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
-        prepare: async raw => prepareArticle(raw, 'xiaohongshu', xhsOptionsSchema, prepareXhs),
-        preflight: preflightArticle, execute: publishXhs,
+        prepare: async (raw, context) => prepareArticle(raw, context, 'xiaohongshu', xhsOptionsSchema, prepareXhs),
+        preflight: async () => undefined, execute: publishXhs,
         probe: async ({ page }) => {
           await navigatePlatform(page, PUBLISH);
           if (new URL(page.url()).pathname.includes('login')) return { state: 'unavailable', reason: '创作者中心需要登录。' };
