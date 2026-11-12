@@ -1,0 +1,44 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { chromium } from 'playwright';
+import { defaultRegistry } from '../../src/platform/builtins.js';
+
+for (const width of [1440, 390]) test(`site command studio, capability contracts and recovery work at ${width}px`, async t => {
+  const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width, height: 900 } });
+  const errors: string[] = []; const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+  await context.route('https://wm.test/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/catalog.json') return route.fulfill({ json: { platforms: defaultRegistry().describe() } });
+    const file = path === '/' ? '/index.html' : path;
+    const contentType = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
+    return route.fulfill({ contentType, body: await readFile('site' + file) });
+  });
+  await page.addInitScript("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { document.documentElement.dataset.copied = text; } } });");
+  await page.goto('https://wm.test/'); await page.locator('.capability-card').first().waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.locator('#platform-choice').selectOption('xiaohongshu');
+  assert.match(await page.locator('#command-status').innerText(), /不可执行/);
+  assert.equal(await page.locator('.prompt-copy').isDisabled(), true);
+  await page.locator('#intent-choice').selectOption('content.publish');
+  assert.match(await page.locator('#generated-command').innerText(), /wm article publish/);
+  await page.locator('#file-input').fill("my article'; touch NEVER.md");
+  const command = await page.locator('#generated-command').innerText();
+  assert.match(command, /'my article'\\''; touch NEVER.md'/);
+  await page.locator('[data-copy="generated-command"]').click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), command);
+  await page.getByRole('button', { name: '知乎', exact: true }).click();
+  assert.ok(await page.locator('.capability-card').count() > 0);
+  await page.locator('#capability-search').fill('resource.get');
+  assert.equal(await page.locator('.capability-card').count(), 1);
+  await page.locator('.capability-card button').click();
+  assert.match(await page.locator('#schema-json').innerText(), /inputSchema|input_schema|input/);
+  await page.keyboard.press('Escape'); assert.equal(await page.locator('#schema-dialog').isVisible(), false);
+  assert.equal(await page.locator('#resume-demo').isDisabled(), true);
+  await page.locator('[data-evidence="confirmed"]').click(); await page.locator('#resume-demo').click();
+  assert.match(await page.locator('#demo-write-label').innerText(), /跳过提交/);
+  await page.locator('#reset-demo').click(); assert.equal(await page.locator('#resume-demo').isDisabled(), true);
+  await page.locator('[data-evidence="absent"]').click(); assert.match(await page.locator('#recovery-explanation').innerText(), /列表里暂时找不到文章不算证据/);
+  assert.deepEqual(errors, []);
+});

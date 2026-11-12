@@ -10,6 +10,7 @@ import { ensureBrowser } from '../../src/runtime/managed-browser.js';
 import { CliError } from '../../src/shared/errors.js';
 import { AccountRepository } from '../../src/runtime/accounts.js';
 import { PlatformRegistry } from '../../src/core/registry.js';
+import { UploadCache } from '../../src/runtime/uploads.js';
 import { ObjectStore } from '../../src/runtime/objects.js';
 import { PublishingService } from '../../src/services/publishing.js';
 
@@ -42,14 +43,15 @@ test('body insertion cannot overwrite a focused title and triggers editor input'
 });
 
 const editorFixture = `<!doctype html><meta charset="utf-8">
-<input id="title"><input id="author"><textarea id="js_description"></textarea>
+<textarea id="title" hidden></textarea><div id="js_title_main"><div class="ProseMirror" contenteditable="true"></div></div><input id="author"><textarea id="js_description"></textarea>
 <div class="rich_media_content"><div class="ProseMirror" contenteditable="true"></div></div>
-<input type="file" accept="image/*"><a id="cover">从正文选择</a><div id="coverPreview"></div>
+<input type="file" accept="image/*"><div id="js_cover_area"><button class="select-cover__btn" onclick="document.querySelector('#cover').hidden=false">拖拽或选择封面</button><a class="js_selectCoverFromContent" hidden>从正文选择</a><a class="js_selectCoverFromContent" id="cover" hidden>从正文选择可选视频封面</a><div id="coverPreview" style="width:100px;height:100px"></div></div>
 <div id="dialogs"></div><div id="js_submit"><button>保存为草稿</button></div><button id="publish">发表</button>
 <script>
-const editor=document.querySelector('.ProseMirror');
+window.wx={cgiData:{idx:0}};
+const editor=document.querySelector('.rich_media_content .ProseMirror');
 const stored=localStorage.getItem('draft');
-if(stored){const saved=JSON.parse(stored);document.querySelector('#title').value=saved.title;editor.innerHTML=saved.body;}
+if(stored){const saved=JSON.parse(stored);document.querySelector('#js_title_main .ProseMirror').textContent=saved.title;editor.innerHTML=saved.body;document.querySelector('#author').value=saved.author;document.querySelector('#js_description').value=saved.summary;if(saved.cover){document.querySelector('#coverPreview').className='js_cover_preview_new';document.querySelector('#coverPreview').style.backgroundImage=saved.cover;}}
 document.querySelector('input[type=file]').onchange=async e=>{
  localStorage.setItem('uploadCount',String(Number(localStorage.getItem('uploadCount')||0)+1));window.uploadedBytes=Array.from(new Uint8Array(await e.target.files[0].arrayBuffer()));localStorage.setItem('uploadedBytes',JSON.stringify(window.uploadedBytes));
  const image=document.createElement('img');image.src='https://mmbiz.qpic.cn/uploaded.png';
@@ -59,11 +61,11 @@ document.querySelector('#cover').onclick=()=>{
  document.querySelector('#dialogs').innerHTML='<div class="weui-desktop-dialog"><img width="128" height="128" src="https://mmbiz.qpic.cn/uploaded.png"><button id="next">下一步</button></div>';
  document.querySelector('#next').onclick=()=>{
   document.querySelector('#dialogs').innerHTML='<div class="weui-desktop-dialog"><button id="confirm">确认</button></div>';
-  document.querySelector('#confirm').onclick=()=>{document.querySelector('#dialogs').innerHTML='';document.querySelector('#coverPreview').className='js_cover_preview_new';document.querySelector('#coverPreview').textContent='已设置封面';};
+  document.querySelector('#confirm').onclick=()=>{document.querySelector('#dialogs').innerHTML='';document.querySelector('#coverPreview').className='js_cover_preview_new';document.querySelector('#coverPreview').textContent='已设置封面';document.querySelector('#coverPreview').style.backgroundImage='url(https://mmbiz.qpic.cn/uploaded.png)';};
  };
 };
 document.querySelector('#js_submit button').onclick=()=>{
- localStorage.setItem('draft',JSON.stringify({title:document.querySelector('#title').value,body:editor.innerHTML}));
+ localStorage.setItem('draft',JSON.stringify({title:document.querySelector('#js_title_main .ProseMirror').textContent,body:editor.innerHTML,author:document.querySelector('#author').value,summary:document.querySelector('#js_description').value,cover:document.querySelector('#coverPreview').style.backgroundImage}));
  history.replaceState({},'',location.pathname+'?token=PRIVATE_FIXTURE_TOKEN&appmsgid=123456');
 };
 document.querySelector('#publish').onclick=()=>{
@@ -93,13 +95,13 @@ test('WeChat compose uploads at the body marker, sets cover, saves and reads bac
   const draft = await composeWechatDraft(context, page, {
     title: '完整发布流程', body: '<p>图片之前</p><p><img src="./cover.png"></p><p>图片之后</p>', format: 'html',
     assets: [{ source: './cover.png', artifact }],
-    cover: { source: './cover.png', artifact }, options: { author: '作者', summary: '摘要' },
-  }, objects);
-  assert.deepEqual(draft, { kind: 'draft', id: '123456' });
+    cover: { source: './cover.png', artifact }, options: { author: '作者', summary: '摘要', preserveAuthor: false, preserveSummary: false },
+  }, { artifacts: objects, uploads: new UploadCache(directory, { bindingId: 'a'.repeat(32), platformId: 'wechat', accountId: 'fixture' }, () => undefined), remember: async () => undefined });
+  assert.deepEqual(draft, { kind: 'draft', id: '123456', selector: { item_index: '0' } });
   assert.ok(!JSON.stringify(draft).includes('PRIVATE_FIXTURE_TOKEN'));
   const editor = context.pages().find(candidate => candidate !== page)!;
-  assert.match(await editor.locator('.ProseMirror').innerText(), /图片之前[\s\S]*图片之后/);
-  assert.equal(await editor.locator('.ProseMirror img').count(), 1);
+  assert.match(await editor.locator('.rich_media_content .ProseMirror').innerText(), /图片之前[\s\S]*图片之后/);
+  assert.equal(await editor.locator('.rich_media_content .ProseMirror img').count(), 1);
   const published = await publishWechatDraft(page, draft);
   assert.equal(published.status, 'published');
   assert.equal(published.remote?.url, 'https://mp.weixin.qq.com/s/fixture-public');

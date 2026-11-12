@@ -13,6 +13,7 @@ export interface ContentPreparation {
   capture(file: string, mediaType: string): Promise<Artifact>;
   source(artifact: Artifact, importer: string, metadata: unknown): void;
   asset(artifact: Artifact): void;
+  output(bytes: Uint8Array, mediaType: string, role: string, extension?: string): Promise<Artifact>;
 }
 export const revisionSchema = z.object({
   schema: z.literal(1), id: digestSchema, importer: z.string(),
@@ -20,7 +21,14 @@ export const revisionSchema = z.object({
 });
 export type ContentRevision = z.infer<typeof revisionSchema>;
 export const variantSchema = z.object({
-  schema: z.literal(1), id: digestSchema, revisionId: digestSchema, digest: digestSchema,
-  payload: artifactSchema, artifacts: z.array(artifactSchema), renderer: z.object({ id: z.string(), version: z.string() }),
+  schema: z.literal(2), id: digestSchema, revisionId: digestSchema, digest: digestSchema,
+  payload: artifactSchema, outputs: z.array(z.object({ role: z.string(), artifact: artifactSchema })), artifacts: z.array(artifactSchema), renderer: z.object({ id: z.string(), version: z.string() }),
 });
 export type PreparedVariant = z.infer<typeof variantSchema>;
+
+export interface UploadReceipt<T> { value: T; expiresAt?: number }
+export interface UploadReuse {
+  use<T>(artifact: Artifact, purpose: string, protocol: string, schema: z.ZodType<T>, hooks: {
+    upload(): Promise<UploadReceipt<T>>; revalidate(value: T): Promise<UploadReceipt<T> | undefined>;
+  }): Promise<T>;
+}

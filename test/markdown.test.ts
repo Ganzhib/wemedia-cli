@@ -1,9 +1,11 @@
+import { readDocument } from '../src/content/document.js';
+import { PreparationContext } from '../src/content/preparation.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanImages, rewriteImages, readArticle, localImagePath } from '../src/content/markdown.js';
+import { scanImages, rewriteImages, localImagePath } from '../src/content/markdown.js';
 import { preflightImages } from '../src/platform/juejin/assets.js';
 
 test('rewrites image nodes while preserving code examples and ordinary text', async () => {
@@ -39,10 +41,10 @@ test('parses YAML multiline metadata without truncating the article', async () =
   try {
     const file = join(directory, 'article.md');
     await writeFile(file, '---\ntitle: "A: B"\nbrief: >-\n  first line\n  second line\ntags:\n  - React.js\n  - TypeScript\n---\n# Body\n');
-    const article = await readArticle(file);
+    const article = await readDocument(file, new PreparationContext(directory));
     assert.equal(article.metadata.brief, 'first line second line');
     assert.deepEqual(article.metadata.tags, ['React.js', 'TypeScript']);
-    assert.equal(article.content, '# Body\n');
+    assert.equal(article.markdown, '# Body\n');
   } finally { await rm(directory, { recursive: true }); }
 });
 

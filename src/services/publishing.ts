@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { AccountScope, OperationContext, RemoteReference, OperationResult } from '../core/types.js';
+import type { AccountIdentity, AccountScope, OperationContext, RemoteReference, OperationResult } from '../core/types.js';
 import type { PlatformRegistry } from '../core/registry.js';
 import { parseInput } from '../core/validation.js';
 import { validateWorkflow, type Verification } from '../core/workflow.js';
+import { UploadCache } from '../runtime/uploads.js';
 import { AccountRepository } from '../runtime/accounts.js';
 import { readJson, withFileLock, writeJson } from '../runtime/storage.js';
 import { PlanningService, type PlanTarget } from './planning.js';
@@ -16,7 +17,7 @@ import { CliError } from '../shared/errors.js';
 
 const jobIndexSchema = z.object({ schema: z.literal(4), id: z.string().regex(/^[a-f0-9]{32}$/), planId: z.string(), createdAt: z.string() });
 export type TargetJob = PlanTarget & {
-  operationId: string; status: string; executionStatus: string; verification?: Verification; requiredAction?: string; steps: Record<string, StepRecord>;
+  operationId: string; status: string; failure?: StepRecord['failure']; executionStatus: string; verification?: Verification; requiredAction?: string; steps: Record<string, StepRecord>;
   remote?: RemoteReference;
   message?: string; data?: OperationResult['data'];
   observation?: OperationRecord['observations'][number];
@@ -38,12 +39,14 @@ export class PublishingService {
   private file(id: string) { return join(this.home, 'jobs', jobName(id), 'job.json'); }
   private project(target: PlanTarget, id: string, operation?: OperationRecord): TargetJob {
     const pending = operation && Object.values(operation.steps).find(step => ['running', 'unknown', 'waiting_for_verification'].includes(step.phase));
+    const failure = operation && Object.values(operation.steps).find(step => step.phase === 'rejected' && step.failure)?.failure;
     let requiredAction: string | undefined;
-    if (operation && Object.values(operation.steps).some(step => step.phase === 'rejected' && step.failure?.code === 'AUTH')) requiredAction = 'login';
+    if (failure?.code === 'CONFLICT') requiredAction = 'review_remote_changes';
+    else if (operation && Object.values(operation.steps).some(step => step.phase === 'rejected' && step.failure?.code === 'AUTH')) requiredAction = 'login';
     else if (pending) requiredAction = pending.verification ? 'scan_in_browser' : 'inspect_remote';
     let status: string = operation?.status ?? 'planned';
     if (operation?.status === 'completed' && operation.result) status = operation.result.status;
-    return { ...target, operationId: id, executionStatus: operation?.status ?? 'planned', verification: pending?.verification, requiredAction, status, steps: operation?.steps ?? {},
+    return { ...target, operationId: id, executionStatus: operation?.status ?? 'planned', verification: pending?.verification, requiredAction, failure, status, steps: operation?.steps ?? {},
       remote: operation?.result?.remote ?? operation?.references.at(-1), message: operation?.message, data: operation?.result?.data, observation: operation?.observations.at(-1) };
   }
   async get(id: string): Promise<PublishJob> {
@@ -66,8 +69,9 @@ export class PublishingService {
     });
   }
   private context(account: AccountScope, record: OperationRecord): OperationContext {
-    return { account, artifacts: this.planning.objects, remember: async remote => {
-      if (!record.references.some(existing => JSON.stringify(existing) === JSON.stringify(remote))) record.references.push(remote);
+    return { account, artifacts: this.planning.objects, uploads: new UploadCache(this.home, account.identity, reason => record.diagnostics.push(reason)), remember: async (remote, role = 'content') => {
+      const references = role === 'asset' ? record.assets : record.references;
+      if (!references.some(existing => JSON.stringify(existing) === JSON.stringify(remote))) references.push(remote);
       await this.operations.save(record);
     } };
   }
@@ -75,6 +79,7 @@ export class PublishingService {
     for (const target of job.targets) {
       const record = await this.operations.find(target.operationId);
       if (!record) continue;
+      for (const reason of record.diagnostics) job.diagnostics.push({ reason, operationId: record.id });
       try { await this.publications.update(record); }
       catch { job.diagnostics.push({ reason: 'publication_index_failed', operationId: record.id }); }
     }
@@ -135,12 +140,17 @@ export class PublishingService {
   async invoke(platformId: string, alias: string, capabilityId: string, input: unknown, newCopy = false) {
     const capability = this.registry.capability(platformId, capabilityId);
     if (capability.effect === 'remote-write') return { effect: capability.effect, value: await this.run((await this.create(capabilityId, input, [platformId + ':' + alias], newCopy)).id) } as const;
-    const prepared = await capability.prepare(input, new PreparationContext(this.home)); const identity = await this.accounts.resolve(platformId, alias);
-    const value = await this.accounts.use(identity, account => this.registry.get(platformId).withSession(account, async session => {
-      const availability = await session.probe(capabilityId); if (availability.state === 'unavailable') throw new CliError(availability.action === 'login' ? 'AUTH' : 'UNSUPPORTED', availability.reason);
-      return session.read(capabilityId, prepared, { account, artifacts: this.planning.objects, remember: async () => { throw new Error('Read capability cannot record a write'); } });
+    return { effect: 'read', value: await this.read(await this.accounts.resolve(platformId, alias), capabilityId, input) } as const;
+  }
+  async read(identity: AccountIdentity, capabilityId: string, input: unknown) {
+    const capability = this.registry.capability(identity.platformId, capabilityId);
+    if (capability.effect !== 'read') throw new CliError('INPUT', '此入口只调用只读能力。');
+    const prepared = await capability.prepare(input, new PreparationContext(this.home));
+    return this.accounts.use(identity, account => this.registry.get(identity.platformId).withSession(account, async session => {
+      const availability = await session.probe(capabilityId);
+      if (availability.state === 'unavailable') throw new CliError(availability.action === 'login' ? 'AUTH' : 'UNSUPPORTED', availability.reason);
+      return session.read(capabilityId, prepared, { account, artifacts: this.planning.objects, uploads: new UploadCache(this.home, account.identity, () => undefined), remember: async () => { throw new Error('Read capability cannot record a write'); } });
     }));
-    return { effect: 'read', value } as const;
   }
   async refresh(id: string): Promise<PublishJob> {
     return withFileLock(join(this.home, 'jobs', jobName(id) + '.lock'), async () => {

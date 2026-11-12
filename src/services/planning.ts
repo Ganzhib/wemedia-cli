@@ -10,6 +10,7 @@ import { PreparationContext, immutableJson } from '../content/preparation.js';
 import { AccountRepository, validateName } from '../runtime/accounts.js';
 import { ObjectStore, canonicalJson, semanticDigest } from '../runtime/objects.js';
 import { readJson } from '../runtime/storage.js';
+import { contentChanges } from '../content/resources.js';
 import { CliError } from '../shared/errors.js';
 
 export const planTargetSchema = z.object({
@@ -85,6 +86,21 @@ export class PlanningService {
     if (plan.id !== id || semanticDigest(planIdentity(plan)) !== id) throw new CliError('INPUT', '发布计划摘要不匹配。');
     return plan;
   }
+  async diff(beforeId: string, afterId: string) {
+    const before = await this.get(beforeId); const after = await this.get(afterId);
+    const identities = new Set([...before.targets, ...after.targets].map(target => target.identity.bindingId));
+    const targets = [];
+    for (const bindingId of identities) {
+      const previous = before.targets.find(target => target.identity.bindingId === bindingId);
+      const next = after.targets.find(target => target.identity.bindingId === bindingId);
+      const previousContent = previous && await this.variant(previous);
+      const nextContent = next && await this.variant(next);
+      targets.push({ identity: (next ?? previous)!.identity,
+        changes: contentChanges(previousContent?.prepared, nextContent?.prepared),
+        outputs: contentChanges(previousContent?.variant.outputs, nextContent?.variant.outputs) });
+    }
+    return { before: before.id, after: after.id, targets };
+  }
   async variant(target: PlanTarget): Promise<{ variant: PreparedVariant; prepared: unknown }> {
     const variant = parseInput(variantSchema, await readJson(join(this.home, 'variants', target.variantId + '.json')));
     const { schema: _schema, id, ...semantic } = variant;
@@ -92,7 +108,7 @@ export class PlanningService {
     const revision = parseInput(revisionSchema, await readJson(join(this.home, 'revisions', variant.revisionId + '.json')));
     const { schema: _revisionSchema, id: revisionId, ...revisionInput } = revision;
     if (revisionId !== variant.revisionId || semanticDigest(revisionInput) !== revisionId) throw new CliError('INPUT', '内容修订摘要不匹配。');
-    for (const artifact of variant.artifacts) await this.objects.verify(artifact);
+    for (const artifact of [...variant.artifacts, ...variant.outputs.map(output => output.artifact)]) await this.objects.verify(artifact);
     const prepared: unknown = JSON.parse((await this.objects.read(variant.payload)).toString('utf8'));
     return { variant, prepared };
   }

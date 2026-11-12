@@ -1,5 +1,15 @@
 # 接口依据与验证记录
 
+## wm 当前接口
+
+命令定义与能力 schema 同源生成。主要内容管理入口：article preview/plan/publish、plan create/get/inspect/diff/export/run、resource get、draft create/update/publish/list、publication list/get/refresh/rebuild、job get/refresh/resume。
+
+平台能力不同：掘金和公众号支持已有草稿更新；知乎支持原草稿发表及服务器回读；小红书当前只有图文发表与公开笔记读取。通用调用使用 platform exec PLATFORM CAPABILITY --input FILE。成功结果在 stdout 的 data，错误在 stderr；resource get --output 写入未包装的完整快照，供后续 --base 使用。
+
+现行 SDK 与契约扩展见 [AI_USAGE.md](AI_USAGE.md)，线上验证以根目录 [LIVE_ACCEPTANCE.md](../LIVE_ACCEPTANCE.md) 为准。
+
+## 上游接口历史依据
+
 当前 wm 能力通过 `wm schema --json` 与 `wm platform list --json` 查询；以下保留掘金底层协议的历史依据，不是通用核心的接口全集。
 
 记录日期：2026-11-11。以下是掘金网页接口，不是平台承诺兼容的开放 SDK。

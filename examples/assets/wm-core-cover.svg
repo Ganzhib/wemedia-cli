@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+<title id="title">多平台发文，难点在提交之后</title><desc id="desc">wm 内容计划与执行回执的技术文章封面</desc>
+<defs><pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#cbd5c7"/></pattern></defs>
+<rect width="1280" height="720" fill="#f3f3e9"/><rect width="1280" height="720" fill="url(#grid)"/>
+<rect x="76" y="68" width="100" height="64" rx="16" fill="#25392d"/><text x="126" y="112" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="40" fill="#caf1cd">wm</text>
+<text x="202" y="107" font-family="system-ui,sans-serif" font-size="20" letter-spacing="4" fill="#526e55">PUBLISHING ENGINEERING</text>
+<rect x="75" y="318" width="690" height="30" fill="#b7e8c9"/>
+<text x="74" y="273" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-weight="650" font-size="73" fill="#25392d">多平台发文，</text>
+<text x="74" y="366" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-weight="650" font-size="73" fill="#25392d">难点在提交之后</text>
+<text x="80" y="437" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="25" fill="#607360">内容快照 / 账号身份 / 步骤回执 / 版本冲突</text>
+<g fill="none" stroke="#749a79" stroke-width="3"><path d="M150 567 H1130"/><circle cx="150" cy="567" r="11" fill="#25392d"/><circle cx="480" cy="567" r="11" fill="#25392d"/><circle cx="810" cy="567" r="11" fill="#25392d"/><circle cx="1130" cy="567" r="16" fill="#b7e8c9"/></g>
+<g font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="21" fill="#526e55" text-anchor="middle"><text x="150" y="618">准备内容</text><text x="480" y="618">冻结计划</text><text x="810" y="618">提交与回执</text><text x="1130" y="618">回查事实</text></g>
+</svg>

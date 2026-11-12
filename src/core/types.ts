@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ArtifactReader } from './content.js';
+import type { ArtifactReader, UploadReuse } from './content.js';
 
 export const accountProfileSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
 export type AccountProfile = z.infer<typeof accountProfileSchema>;
@@ -18,15 +18,20 @@ export const remoteReferenceSchema = z.object({
   selector: z.record(z.string(), z.string()).optional(),
 });
 export type RemoteReference = z.infer<typeof remoteReferenceSchema>;
+export const resourceSnapshotSchema = z.object({ resource: remoteReferenceSchema, version: z.string().min(1), state: z.string(), data: z.json(), observedAt: z.string() });
+export type ResourceSnapshot = z.infer<typeof resourceSnapshotSchema>;
+export const remoteObservationSchema = z.object({ state: z.string(), remote: remoteReferenceSchema.optional(), message: z.string().optional(), snapshot: resourceSnapshotSchema.optional() });
+export type RemoteObservation = z.infer<typeof remoteObservationSchema>;
 export const outcomeSchema = z.enum(['completed', 'draft_saved', 'submitted', 'published', 'rejected', 'unknown', 'waiting_for_verification']);
 export const operationResultSchema = z.object({
-  status: outcomeSchema, remote: remoteReferenceSchema.optional(), message: z.string().optional(), data: z.json().optional(),
+  status: outcomeSchema, remote: remoteReferenceSchema.optional(), message: z.string().optional(), data: z.json().optional(), observation: remoteObservationSchema.optional(),
 });
 export type OperationResult = z.infer<typeof operationResultSchema>;
 export interface OperationContext {
   account: AccountScope;
   artifacts: ArtifactReader;
-  remember(remote: RemoteReference): Promise<void>;
+  uploads: UploadReuse;
+  remember(remote: RemoteReference, role?: 'content' | 'asset'): Promise<void>;
 }
 export interface CapabilityContext<S> extends OperationContext { session: S }
 export interface CapabilityAvailability {
@@ -37,6 +42,3 @@ export interface CapabilityMetadata {
   acceptance: { offline: boolean; liveRead: boolean; liveWrite: boolean };
 }
 export interface SessionProfile { profile: AccountProfile }
-
-export const remoteObservationSchema = z.object({ state: z.string(), remote: remoteReferenceSchema.optional(), message: z.string().optional() });
-export type RemoteObservation = z.infer<typeof remoteObservationSchema>;

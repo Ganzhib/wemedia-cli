@@ -69,3 +69,19 @@ SOFTWARE.
 2. **接口风险**：掘金未提供官方公开 API，本项目基于社区抓包核实的非官方接口实现，随时可能因平台变更而失效；因使用本项目产生的一切风险与后果由使用者自行承担。
 3. **使用边界**：请遵守目标平台服务条款与社区规范；本项目提供的发布能力默认草稿优先并要求显式确认，不得用于垃圾内容分发、批量灌水或绕过平台风控。
 4. **凭据安全**：使用者应妥善保管本地会话凭据（`~/.juejin/session.json`），勿分享、勿提交至任何仓库；因凭据泄露导致的账号损失由使用者自行负责。
+
+## gkgy/dsh-article-share and Arcueid77/article-sync-action
+
+The native Zhihu editor paste workflow in `src/platform/zhihu/adapter.ts` is adapted
+from `publisher.js` in gkgy/dsh-article-share, commit
+`37bd55a98cd0a08f5fa7b986fc61e8d12a315515` (MIT).
+The draft allocation response, existing editor/server readback and native image
+upload observations are adapted from `src/browser.mjs` in
+Arcueid77/article-sync-action, commit
+`5bbc262ffe248ba2bbdf6cfba0b577c15733dfb6` (MIT).
+
+The implementation uses wm's account binding, immutable plans, typed workflow
+steps and evidence-based recovery. Upstream legacy state readers, retry loops,
+credential export and author configuration were not retained. Full license texts
+are in `licenses/dsh-article-share-MIT.txt` and
+`licenses/article-sync-action-MIT.txt`.

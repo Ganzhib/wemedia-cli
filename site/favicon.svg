@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#25281f"/><path d="M30 15v28c0 9-5 12-13 12v-7c5 0 6-2 6-6V25h-7v-7h14zm-8-7h8v7h-8z" fill="#fffefa"/><path d="M37 45h14v6H37z" fill="#ed6437"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="wm-title">
+  <title id="wm-title">wm</title>
+  <rect width="64" height="64" rx="17" fill="#25372e"/>
+  <g fill="none" stroke="#fffefa" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 24L14 42L21 30L28 42L33 24"/>
+    <path d="M37 42V24L44 35L51 24V42"/>
+  </g>
+  <path d="M23 51H41" stroke="#9dc6ac" stroke-width="3" stroke-linecap="round"/>
+</svg>

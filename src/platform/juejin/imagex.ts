@@ -85,7 +85,7 @@ export class ImageUploader {
     return response.Result;
   }
 
-  async upload(path: string): Promise<string> {
+  async upload(path: string): Promise<{ uri: string; url: string }> {
     await validateImage(path);
     const uuid = `${Date.now()}${randomInt(100000, 1000000)}`;
     const { token } = await this.http.data<{ token: TemporaryToken }>(`/imagex/v2/gen_token?aid=2608&uuid=${uuid}&client=web`);
@@ -111,7 +111,7 @@ export class ImageUploader {
     }, 'POST');
     if (committed.Results[0]?.UriStatus !== 2000) throw new CliError('API', 'ImageX 未确认图片提交成功。');
     try {
-      return await this.resolveUrl(store.StoreUri);
+      return { uri: store.StoreUri, url: await this.resolveUrl(store.StoreUri) };
     } catch (error) {
       const failure = error instanceof CliError ? error : new CliError('INTERNAL', '图片地址获取失败。');
       throw new CliError(failure.code, '图片已提交成功，但地址获取失败；使用 image resolve 查询已有图片，不要重新上传。', { ...failure.details, file: path, uri: store.StoreUri, upload_status: 'committed' });

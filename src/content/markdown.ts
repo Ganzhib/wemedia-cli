@@ -1,13 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import matter from 'gray-matter';
+import { resolve } from 'node:path';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toMarkdown } from 'mdast-util-to-markdown';
 import type { Definition, Image, Nodes } from 'mdast';
 import { CliError } from '../shared/errors.js';
 
-export interface ArticleMetadata { title?: string; brief?: string; category?: string; tags?: string[]; cover?: string }
-export interface MarkdownDocument { content: string; metadata: ArticleMetadata; directory: string }
 export interface LocalImage { path: string; url: string; node: Image | Definition }
 
 export function omitRepeatedTitle(content: string, title: string): string {
@@ -23,25 +19,6 @@ export function omitRepeatedTitle(content: string, title: string): string {
 function visit(node: Nodes, callback: (node: Nodes) => void): void {
   callback(node);
   if ('children' in node) for (const child of node.children) visit(child, callback);
-}
-
-export async function readArticle(file: string): Promise<MarkdownDocument> {
-  const source = await readFile(file, 'utf8');
-  const parsed = matter(source);
-  const raw = parsed.data;
-  for (const key of ['title', 'brief', 'category', 'cover']) {
-    if (raw[key] !== undefined && typeof raw[key] !== 'string') throw new CliError('INPUT', `frontmatter.${key} 必须为字符串。`);
-  }
-  let tags: string[] | undefined;
-  if (typeof raw.tags === 'string') tags = raw.tags.split(',').map(tag => tag.trim()).filter(Boolean);
-  else if (raw.tags !== undefined) {
-    if (!Array.isArray(raw.tags) || raw.tags.some(tag => typeof tag !== 'string')) throw new CliError('INPUT', 'frontmatter.tags 必须为字符串数组或逗号分隔字符串。');
-    tags = raw.tags;
-  }
-  return {
-    content: parsed.content, directory: dirname(resolve(file)),
-    metadata: { title: raw.title, brief: raw.brief, category: raw.category, tags, cover: raw.cover },
-  };
 }
 
 export function localImagePath(url: string, directory: string): string | undefined {
