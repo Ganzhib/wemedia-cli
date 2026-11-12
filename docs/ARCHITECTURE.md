@@ -25,3 +25,5 @@ PublishingService 先准备全部目标，再按平台账号锁执行。写入�
 公众号使用文颜 core 3.0.6 渲染、DOMPurify 清理进入已登录编辑器的 HTML，再通过平台编辑器上传图片和保存。选择未引入 Mermaid 依赖的版本，避免将与当前图文流程无关的运行时和已知问题带入安装包。小红书将已调研的浏览器流程移植到 Playwright，保留站内安全 SDK，通过真实响应获取笔记 ID，不提取或伪造签名。
 
 设计目标与后续扩展说明见 [完整设计](MULTIPLATFORM_ARCHITECTURE.md)，账号验证与写入验收边界见 [验收记录](../LIVE_ACCEPTANCE.md)。
+
+下一版的通用契约见 [通用发布核心设计](rfcs/0001-generic-publishing-core.md) 与 [实施计划](PUBLISHING_CORE_IMPLEMENTATION.md)。核心不包含具体平台、固定内容格式或平台工作流分支；新契约直接替换旧契约，不建立兼容层。

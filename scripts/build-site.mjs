@@ -25,7 +25,6 @@ for (const asset of ['app.js', 'styles.css']) {
 await writeFile(join(output, 'index.html'), index);
 await mkdir(join(output, "examples"), { recursive: true });
 await cp("examples/article.md", join(output, "examples/article.md"));
-await cp("skills/juejin-cli", join(output, "skill"), { recursive: true });
-await cp("skills/drawio-skill", join(output, "drawio-skill"), { recursive: true });
+await cp("skills/wm", join(output, "skill"), { recursive: true });
 await writeFile(join(output, ".nojekyll"), "");
 console.log(`Built GitHub Pages for ${metadata.name}@${metadata.version}`);

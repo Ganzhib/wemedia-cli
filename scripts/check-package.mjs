@@ -15,7 +15,9 @@ try {
   const [packed] = JSON.parse(run([npm, 'pack', '--json', '--ignore-scripts', '--pack-destination', directory]));
   assert.equal(packed.name, '@ganzhibin/wemedia-cli');
   const paths = new Set(packed.files.map(file => file.path));
-  for (const path of ['dist/wm.js', 'dist/core/registry.js', 'dist/services/publishing.js', 'dist/platform/wechat/adapter.js', 'dist/platform/xiaohongshu/adapter.js', 'skills/wemedia-cli/SKILL.md', 'licenses/baoyu-skills-MIT.txt', 'licenses/xiaohongshu-skills-MIT.txt']) assert.ok(paths.has(path), 'Missing ' + path);
+  for (const path of ['dist/wm.js', 'dist/core/registry.js', 'dist/services/publishing.js', 'dist/platform/wechat/adapter.js', 'dist/platform/xiaohongshu/adapter.js', 'skills/wm/SKILL.md', 'licenses/baoyu-skills-MIT.txt', 'licenses/xiaohongshu-skills-MIT.txt']) assert.ok(paths.has(path), 'Missing ' + path);
+  assert.deepEqual([...paths].filter(path => path.startsWith('skills/') && path.split('/').length === 3 && path.endsWith('/SKILL.md')), ['skills/wm/SKILL.md']);
+  assert.ok(![...paths].some(path => path.startsWith('skills/') && !path.startsWith('skills/wm/')));
   assert.ok(![...paths].some(path => path.includes('session.json') || path.includes('browser-profile/') || path.startsWith('accounts/')));
   const prefix = join(directory, 'install');
   run([npm, 'install', '--prefix', prefix, '--omit=dev', '--no-audit', '--no-fund', join(directory, packed.filename)]);
@@ -27,12 +29,17 @@ try {
   assert.equal(JSON.parse(run([cli, 'schema', 'article', 'publish', '--json'])).data.command.name, 'publish');
   assert.equal(JSON.parse(run([cli, 'platform', 'list', '--json'])).data.length, 3);
   assert.equal(JSON.parse(run([cli, 'skill', 'status', '--json'])).data.state, 'installed');
-  await access(join(skills, 'wemedia-cli', 'SKILL.md'));
+  const skillSchema = JSON.parse(run([cli, 'schema', 'skill', 'install', '--json'])).data.command;
+  assert.ok(!skillSchema.options.some(option => option.flags.startsWith('--name')));
+  const legacyName = spawnSync(process.execPath, [cli, 'skill', 'install', '--name', 'juejin-cli', '--json'], { env, encoding: 'utf8' });
+  assert.equal(legacyName.status, 2);
+  assert.equal(JSON.parse(legacyName.stderr).error.code, 'INPUT');
+  await access(join(skills, 'wm', 'SKILL.md'));
   const unauthenticated = spawnSync(process.execPath, [cli, '--home', join(directory, 'empty-home'), 'auth', 'status', '--json'], { env, encoding: 'utf8' });
   assert.equal(unauthenticated.status, 3);
   assert.equal(JSON.parse(unauthenticated.stderr).error.code, 'AUTH');
   await rm(skills, { recursive: true });
   run([cli, '--help']);
-  await access(join(skills, 'wemedia-cli', 'SKILL.md'));
+  await access(join(skills, 'wm', 'SKILL.md'));
   console.log('PASS real tarball installation, wm binary, schema, platform discovery, authentication boundary and skill recovery (' + metadata.version + ')');
 } finally { await rm(directory, { recursive: true, force: true }); }

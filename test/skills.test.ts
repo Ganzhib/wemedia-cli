@@ -4,56 +4,57 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installSkill, skillStatus } from '../src/runtime/skills.js';
-import { VERSION } from '../src/package.js';
-import { PACKAGE_ROOT } from '../src/package.js';
+import { VERSION, PACKAGE_ROOT } from '../src/package.js';
 
-test('installs a complete Skill once and leaves matching installations untouched', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'juejin-skill-'));
-  const target = join(home, 'juejin-cli');
-  try {
-    assert.equal((await skillStatus(target)).state, 'missing');
-    await installSkill(target, 'juejin-cli');
-    const receipt = await readFile(join(target, '.wemedia-cli-install.json'), 'utf8');
-    assert.ok((await readFile(join(target, 'SKILL.md'), 'utf8')).includes('name: juejin-cli'));
-    assert.ok((await readFile(join(target, 'references', 'scenarios.md'), 'utf8')).includes('专栏'));
-    await installSkill(target, 'juejin-cli');
-    assert.equal(await readFile(join(target, '.wemedia-cli-install.json'), 'utf8'), receipt);
-    assert.equal((await skillStatus(target)).version, VERSION);
-  } finally { await rm(home, { recursive: true }); }
+test('installs the complete wm Skill once and leaves matching installations untouched', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'wm-skill-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const target = join(home, 'wm');
+  assert.equal((await skillStatus(target)).state, 'missing');
+  await installSkill(target);
+  const receipt = await readFile(join(target, '.wm-install.json'), 'utf8');
+  for (const relative of ['SKILL.md', 'references/scenarios.md']) {
+    assert.deepEqual(await readFile(join(target, relative)), await readFile(join(PACKAGE_ROOT, 'skills/wm', relative)));
+  }
+  await installSkill(target);
+  assert.equal(await readFile(join(target, '.wm-install.json'), 'utf8'), receipt);
+  assert.equal((await skillStatus(target)).version, VERSION);
 });
 
-test('keeps user-edited Skills and reports the conflict', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'juejin-skill-'));
-  const target = join(home, 'juejin-cli');
-  try {
-    await installSkill(target, 'juejin-cli');
-    await writeFile(join(target, 'SKILL.md'), 'My instructions');
-    assert.equal((await skillStatus(target)).state, 'modified');
-    await assert.rejects(() => installSkill(target, 'juejin-cli'), /已有自定义 Skill/);
-    assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'My instructions');
-  } finally { await rm(home, { recursive: true }); }
+test('keeps user-edited Skills and reports the conflict', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'wm-skill-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const target = join(home, 'wm');
+  await installSkill(target);
+  await writeFile(join(target, 'SKILL.md'), 'My instructions');
+  assert.equal((await skillStatus(target)).state, 'modified');
+  await assert.rejects(() => installSkill(target), /已有自定义 Skill/);
+  assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'My instructions');
 });
 
-test('does not take over a same-named skill created outside this package', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'juejin-skill-'));
-  const target = join(home, 'juejin-cli');
-  try {
-    await mkdir(target);
-    await writeFile(join(target, 'SKILL.md'), 'Existing skill');
-    await assert.rejects(() => installSkill(target, 'juejin-cli'), /已有自定义 Skill/);
-    assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'Existing skill');
-  } finally { await rm(home, { recursive: true }); }
+test('does not take over a same-named skill created outside this package', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'wm-skill-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const target = join(home, 'wm');
+  await mkdir(target);
+  await writeFile(join(target, 'SKILL.md'), 'Existing skill');
+  await assert.rejects(() => installSkill(target), /已有自定义 Skill/);
+  assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'Existing skill');
 });
 
-test('bundled drawio installs scripts and binary data without changing bytes', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'juejin-drawio-'));
-  try {
-    const target = join(home, 'drawio-skill');
-    await installSkill(target, 'drawio-skill');
-    assert.deepEqual(await readFile(join(target, 'data/shape-index.json.gz')), await readFile(join(PACKAGE_ROOT, 'skills/drawio-skill/data/shape-index.json.gz')));
-    assert.ok((await readFile(join(target, 'scripts/validate.py'), 'utf8')).length > 0);
-    assert.equal((await skillStatus(target)).state, 'installed');
-    await writeFile(join(target, 'SKILL.md'), 'custom drawio');
-    await assert.rejects(installSkill(target, 'drawio-skill'), /已有自定义 Skill/);
-  } finally { await rm(home, { recursive: true, force: true }); }
+test('installation preserves unrelated files and independently installed sibling Skills', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'wm-skill-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  for (const name of ['wemedia-cli', 'juejin-cli', 'drawio-skill']) {
+    await mkdir(join(home, name));
+    await writeFile(join(home, name, 'SKILL.md'), 'custom ' + name);
+  }
+  const target = join(home, 'wm');
+  await installSkill(target);
+  await writeFile(join(target, 'my-notes.md'), 'keep my notes');
+  await installSkill(target);
+  assert.equal(await readFile(join(target, 'my-notes.md'), 'utf8'), 'keep my notes');
+  for (const name of ['wemedia-cli', 'juejin-cli', 'drawio-skill']) {
+    assert.equal(await readFile(join(home, name, 'SKILL.md'), 'utf8'), 'custom ' + name);
+  }
 });
