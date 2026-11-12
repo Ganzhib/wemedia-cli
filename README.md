@@ -22,9 +22,16 @@
 
 真实账号验收和浏览器测试边界见 [实现与验收记录](LIVE_ACCEPTANCE.md)。代码实现不等于所有账号上的线上发表均已验证。
 
-## 从源码安装
+## 安装
 
-需要 Node.js 22.16+，推荐兼容的 LTS。当前版本从源码安装；尚未发布 npm 安装包。
+需要 Node.js 22.16+，推荐兼容的 LTS。npm 包发布后可运行：
+
+```bash
+npm install -g @ganzhibin/wemedia-cli
+wm --version
+```
+
+也可从源码安装：
 
 ```bash
 git clone --branch master https://github.com/Ganzhib/wemedia-cli.git
@@ -34,6 +41,8 @@ npm link
 wm --version
 wm platform list --json
 ```
+
+维护者发布：更新 `package.json` 和锁文件中的版本，推送到 `main`。发布工作流完成检查后，仅在 npm 尚无该版本时发布；预发布版本使用对应的 npm 标签（如 `alpha`），稳定版本使用 `latest`。首次发布须先由 npm 包所有者完成 npm 身份验证并发布，再在 npm 包设置中将 GitHub 仓库 `Ganzhib/wemedia-cli` 的 `publish.yml` 配置为允许 `npm publish` 的 Trusted Publisher。后续推送由 GitHub Actions 通过 OIDC 发布，无需长期 npm token。
 
 安装包只包含名为 wm 的 Skill，默认目录为 ~/.agents/skills/wm/。安装器保留已有自定义文件，不扫描或兼容旧 Skill 目录。浏览器在首次登录时自动准备。无需事先运行 Playwright 安装命令。
 
