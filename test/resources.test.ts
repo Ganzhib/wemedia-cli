@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { fixture, platformFixture } from './helpers.js';
@@ -51,9 +51,11 @@ test('uploads without advertised validity are revalidated, and cache write failu
   const hooks = { upload: async () => ({ value: 'receipt-' + ++uploads }), revalidate: async (value: string) => { checks++; return { value }; } };
   await cache.use(artifact, 'body', 'v1', schema, hooks); await cache.use(artifact, 'body', 'v1', schema, hooks);
   assert.equal(uploads, 1); assert.equal(checks, 1);
-  const blocked = join(home, 'blocked'); await mkdir(join(blocked, 'cache'), { recursive: true }); await writeFile(join(blocked, 'cache', 'uploads'), 'blocked');
-  await assert.rejects(new UploadCache(blocked, identity, () => undefined).use(artifact, 'body', 'v1', schema, hooks), (error: CliError) => error.code === 'INPUT' && error.details?.outcome === undefined);
-  assert.equal(uploads, 1);
+  const [cachedFile] = await readdir(join(home, 'cache', 'uploads'));
+  const cachePath = join(home, 'cache', 'uploads', cachedFile); const validCache = await readFile(cachePath);
+  await writeFile(cachePath, 'invalid JSON');
+  await assert.rejects(cache.use(artifact, 'body', 'v1', schema, hooks), (error: CliError) => error.code === 'INPUT' && error.details?.outcome === undefined);
+  assert.equal(uploads, 1); await writeFile(cachePath, validCache);
   // Block projection creation after a confirmed upload, without corrupting a cache read.
   const freshHome = join(home, 'fresh');
   const failing = new UploadCache(freshHome, identity, reason => warnings.push(reason));

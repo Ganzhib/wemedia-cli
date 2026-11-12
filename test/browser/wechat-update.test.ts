@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 import { createWechatPlatform } from '../../src/platform/wechat/adapter.js';
 import { AccountRepository } from '../../src/runtime/accounts.js';
 import { PlatformRegistry } from '../../src/core/registry.js';
+import { ObjectStore, semanticDigest } from '../../src/runtime/objects.js';
 import { PublishingService } from '../../src/services/publishing.js';
 
 async function wechatFixture(t: TestContext, autosave = false) {
@@ -61,7 +62,10 @@ test('a cache read failure inside a composing WeChat update stays unknown after 
   const base = (await service.invoke('wechat', 'main', 'resource.get', { resource: { kind: 'draft', id: '123456', selector: { item_index: '1' } } })).value;
   await writeFile(join(home, 'image.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64'));
   await writeFile(file, '# 新标题\n\n已经进入自动保存的正文。\n\n![图片](./image.png)');
-  await mkdir(join(home, 'cache')); await writeFile(join(home, 'cache', 'uploads'), 'blocked');
+  const artifact = await new ObjectStore(home).put(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64'), 'image/png', '.png');
+  const key = semanticDigest({ identity: await service.accounts.resolve('wechat'), artifact, purpose: 'article-image', protocol: 'wechat-mmbiz-v1' });
+  await mkdir(join(home, 'cache', 'uploads'), { recursive: true });
+  await writeFile(join(home, 'cache', 'uploads', key + '.json'), 'invalid JSON');
   const job = await service.create('draft.update', { file, base }, ['wechat']);
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'unknown'); assert.match(items[1].content, /已经进入自动保存/); assert.equal(saves(), 0);
