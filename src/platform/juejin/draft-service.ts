@@ -1,8 +1,9 @@
-import { JuejinClient } from '../platform/juejin/client.js';
-import type { Draft, DraftInput } from '../platform/juejin/types.js';
-import { CliError } from '../shared/errors.js';
-import { ImageUploader } from '../platform/juejin/imagex.js';
-import { inferredTitle, localImagePath, preflightImages, readArticle, rewriteImages, scanImages, omitRepeatedTitle } from '../content/markdown.js';
+import { JuejinClient } from './client.js';
+import type { Draft, DraftInput } from './types.js';
+import { CliError } from '../../shared/errors.js';
+import { ImageUploader } from './imagex.js';
+import { inferredTitle, localImagePath, readArticle, rewriteImages, scanImages, omitRepeatedTitle, type MarkdownDocument } from '../../content/markdown.js';
+import { preflightImages } from './assets.js';
 
 export interface DraftOptions {
   title?: string; brief?: string; category?: string; tags?: string[]; cover?: string;
@@ -19,7 +20,10 @@ export class DraftService {
   constructor(private readonly client: JuejinClient, private readonly uploader: ImageUploader) {}
 
   async prepare(file: string, options: DraftOptions, existing?: Draft): Promise<DraftPlan> {
-    const document = await readArticle(file);
+    return this.prepareDocument(await readArticle(file), options, existing);
+  }
+
+  async prepareDocument(document: MarkdownDocument, options: DraftOptions, existing?: Draft): Promise<DraftPlan> {
     const title = options.title ?? document.metadata.title ?? existing?.title ?? inferredTitle(document.content);
     const brief = options.brief ?? document.metadata.brief ?? existing?.brief_content;
     if (!title?.trim()) throw new CliError('INPUT', '请提供 --title、frontmatter.title 或一级标题。');

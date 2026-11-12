@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { VERSION } from '../package.js';
-import { defaultHome } from '../runtime/session.js';
+import { defaultHome } from '../platform/juejin/session.js';
 import { autoInstallSkill } from '../runtime/skills.js';
 import { CommandContext, type ServiceFactory, type GrowthServiceRunner } from './context.js';
 import { CliOutput, type CliStreams } from './output.js';

@@ -1,11 +1,12 @@
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Cookie } from 'playwright';
-import { CliError } from '../shared/errors.js';
-import { JuejinHttp } from '../platform/juejin/http.js';
+import { CliError } from '../../shared/errors.js';
+import { JuejinHttp } from './http.js';
+import { withFileLock } from '../../runtime/storage.js';
 
 export function defaultHome(): string {
   return process.env.JUEJIN_HOME ?? join(homedir(), '.config', 'juejin-cli');
@@ -52,24 +53,10 @@ export class SessionStore {
 
   async clear(): Promise<void> { await rm(this.path, { force: true }); }
 
-  async withWriteLock<T>(action: () => Promise<T>): Promise<T> {
-    await mkdir(this.home, { recursive: true, mode: 0o700 });
-    const lockPath = join(this.home, 'write.lock');
-    let lock;
-    try {
-      lock = await open(lockPath, 'wx', 0o600);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      throw new CliError('BUSY', `另一个写操作正在执行。若进程已退出，请检查后手动删除 ${lockPath}。`);
-    }
-    try {
-      await lock.writeFile(JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
-      return await action();
-    } finally {
-      await lock.close();
-      await rm(lockPath);
-    }
+  withWriteLock<T>(action: () => Promise<T>): Promise<T> {
+    return withFileLock(join(this.home, 'write.lock'), action);
   }
+
 }
 
 export function parseCookies(content: string): Cookie[] {

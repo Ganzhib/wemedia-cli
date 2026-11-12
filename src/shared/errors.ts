@@ -1,4 +1,4 @@
-export type ErrorCode = 'INPUT' | 'AUTH' | 'API' | 'NETWORK' | 'PROTOCOL' | 'BUSY' | 'INTERNAL';
+export type ErrorCode = 'INPUT' | 'AUTH' | 'API' | 'NETWORK' | 'PROTOCOL' | 'BUSY' | 'INTERNAL' | 'UNSUPPORTED' | 'VERIFICATION' | 'UNKNOWN' | 'PARTIAL';
 
 export class CliError extends Error {
   constructor(
@@ -19,5 +19,9 @@ export function exitCode(error: CliError): number {
     case 'NETWORK': return 5;
     case 'BUSY': return 6;
     case 'INTERNAL': return 1;
+    case 'UNSUPPORTED': return 7;
+    case 'VERIFICATION': return 8;
+    case 'UNKNOWN': return 9;
+    case 'PARTIAL': return 10;
   }
 }

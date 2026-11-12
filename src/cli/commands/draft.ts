@@ -1,4 +1,4 @@
-import type { SaveDraftOptions } from '../../services/writing-service.js';
+import type { SaveDraftOptions } from '../../platform/juejin/writing-service.js';
 import type { CommandContext } from '../context.js';
 import { draftOptions, id, paging, type Paging } from '../options.js';
 

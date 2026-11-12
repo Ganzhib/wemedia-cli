@@ -1,14 +1,14 @@
 {
-  "name": "@ganzhibin/juejin-cli",
-  "version": "0.2.1",
-  "description": "A scriptable Juejin CLI for humans and AI agents",
+  "name": "@ganzhibin/wemedia-cli",
+  "version": "0.1.0",
+  "description": "AI-native multi-platform publishing CLI for Juejin, Xiaohongshu and WeChat",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=22.16.0"
   },
   "bin": {
-    "juejin": "dist/cli.js"
+    "wm": "dist/wm.js"
   },
   "exports": {
     ".": "./dist/index.js"
@@ -20,21 +20,24 @@
     "scripts/postinstall.mjs",
     "docs",
     "README.md",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ganzhib/juejin-cli.git"
+    "url": "https://github.com/Ganzhib/wemedia-cli.git"
   },
-  "homepage": "https://ganzhib.github.io/juejin-cli/",
+  "homepage": "https://github.com/Ganzhib/wemedia-cli#readme",
   "bugs": {
-    "url": "https://github.com/Ganzhib/juejin-cli/issues"
+    "url": "https://github.com/Ganzhib/wemedia-cli/issues"
   },
   "keywords": [
-    "juejin",
+    "wemedia",
     "cli",
     "agent",
-    "skills",
+    "wechat",
+    "xiaohongshu",
+    "juejin",
     "markdown"
   ],
   "publishConfig": {
@@ -45,24 +48,31 @@
     "build": "node scripts/build.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "dev": "tsx src/cli.ts",
+    "dev": "tsx src/wm.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "check:package": "npm run build && node scripts/check-package.mjs",
     "build:site": "node scripts/build-site.mjs",
     "release:check": "node scripts/release-check.mjs",
     "prepare": "npm run build",
     "postinstall": "node scripts/postinstall.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test:browser": "tsx --test test/browser/*.test.ts"
   },
   "dependencies": {
+    "@wenyan-md/core": "3.0.6",
     "commander": "^14.0.0",
+    "dompurify": "3.4.17",
+    "form-data-encoder": "4.1.0",
+    "formdata-node": "6.0.3",
     "gray-matter": "^4.0.3",
+    "jsdom": "27.4.0",
     "json-bigint": "^1.0.0",
     "mdast-util-from-markdown": "^2.0.2",
     "mdast-util-to-markdown": "^2.1.2",
     "playwright": "^1.56.0"
   },
   "devDependencies": {
+    "@types/jsdom": "27.0.0",
     "@types/json-bigint": "^1.0.4",
     "@types/mdast": "^4.0.4",
     "@types/node": "^22.0.0",

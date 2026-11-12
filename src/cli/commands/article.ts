@@ -1,8 +1,8 @@
 import { Option } from 'commander';
-import type { PublishOptions } from '../../services/writing-service.js';
+import type { PublishOptions } from '../../platform/juejin/writing-service.js';
 import type { CommandContext } from '../context.js';
 import { commaSeparated, draftOptions, id, paging, type Paging } from '../options.js';
-import type { SaveDraftOptions } from '../../services/writing-service.js';
+import type { SaveDraftOptions } from '../../platform/juejin/writing-service.js';
 import { articleSummary } from '../presentation.js';
 
 export function registerArticle(context: CommandContext): void {

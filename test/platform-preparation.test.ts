@@ -1,0 +1,30 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { readDocument } from '../src/content/document.js';
+import { prepareWechat } from '../src/platform/wechat/adapter.js';
+import { prepareXhs } from '../src/platform/xiaohongshu/adapter.js';
+
+test('platform preparation preserves source, rejects truncation and sanitizes authenticated-editor HTML', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'wm-content-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'cover.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64'));
+  const file = join(directory, 'article.md');
+  const original = '# 中文标题\n\n**正文**\n\n```ts\nconst value = 42;\n```\n\n![封面](./cover.png)\n\n<script>alert(1)</script><img src="./cover.png" onerror="alert(2)">';
+  await writeFile(file, original);
+  const document = await readDocument(file);
+  const wechat = await prepareWechat(document, { title: '中文标题', cover: './cover.png' });
+  assert.equal(wechat.format, 'html');
+  assert.match(wechat.body, /中文|正文/);
+  assert.match(wechat.body, /style=/);
+  assert.ok(!wechat.body.includes('<script'));
+  assert.ok(!wechat.body.includes('onerror'));
+  const note = await prepareXhs(document, { title: '短标题', content: '对应的小红书短文。', images: ['./cover.png'], tags: ['编程'] });
+  assert.equal(note.body, '对应的小红书短文。');
+  assert.equal(note.assets.length, 1);
+  await assert.rejects(prepareXhs(document, { title: '过长标题'.repeat(6), content: '正文', images: ['./cover.png'] }), /最多/);
+  await assert.rejects(prepareXhs(document, { title: '短标题', content: '文'.repeat(1001), images: ['./cover.png'] }), /1000/);
+  assert.equal((await readDocument(file)).markdown, original);
+});

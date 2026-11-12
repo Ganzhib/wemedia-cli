@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { installBrowser } from '../../runtime/browser.js';
-import { login, parseCookies, verifySession } from '../../runtime/session.js';
+import { login, parseCookies, verifySession } from '../../platform/juejin/session.js';
 import type { CommandContext } from '../context.js';
 
 export function registerAuth(context: CommandContext): void {

@@ -1,6 +1,6 @@
 import type { CommandContext } from '../context.js';
-import { CheckInScheduler } from '../../runtime/schedule.js';
-import { checkInDate } from '../../services/checkin-date.js';
+import { CheckInScheduler } from '../../platform/juejin/schedule.js';
+import { checkInDate } from '../../platform/juejin/checkin-date.js';
 
 export function registerCheckIn(context: CommandContext): void {
   const checkin = context.program.command('checkin').description('每日签到、记录、补签与定时任务');
