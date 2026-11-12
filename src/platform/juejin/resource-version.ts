@@ -1,4 +1,5 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
+import { toMarkdown } from 'mdast-util-to-markdown';
 import type { Nodes } from 'mdast';
 import type { ResourceSnapshot } from '../../core/types.js';
 import { requireVersion } from '../../content/resources.js';
@@ -9,7 +10,7 @@ function imageIdentity(source: string): string {
   try { url = new URL(source); } catch { return source; }
   if (url.protocol !== 'https:' || !/^p\d+-xtjj-private\.juejin\.cn$/.test(url.hostname)) return source;
   // These fields are refreshed on reads; retain the image path, transform and other parameters.
-  for (const key of ['x-orig-authkey', 'x-orig-expires', 'x-orig-sign']) url.searchParams.delete(key);
+  for (const key of ['rk3s', 'x-orig-authkey', 'x-orig-expires', 'x-orig-sign']) url.searchParams.delete(key);
   return url.href;
 }
 
@@ -23,8 +24,9 @@ function imageIdentities(markdown: string): string {
   for (const node of nodes.reverse()) {
     if (node.type !== 'image' && !(node.type === 'definition' && referenced.has(node.identifier))) continue;
     const start = node.position!.start.offset!; const end = node.position!.end.offset!;
-    const original = markdown.slice(start, end);
-    result = result.slice(0, start) + original.replace(node.url, imageIdentity(node.url)) + result.slice(end);
+    const url = imageIdentity(node.url);
+    if (url === node.url) continue;
+    result = result.slice(0, start) + toMarkdown({ ...node, url }).trimEnd() + result.slice(end);
   }
   return result;
 }
