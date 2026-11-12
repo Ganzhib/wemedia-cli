@@ -37,12 +37,18 @@ const result = await service.run(job.id);
 
 definePlatform 提供真实登录和 withSession 生命周期。readCapability、writeCapability 从输入、输出和准备产物 schema 推导处理器参数。平台的具体会话对象在工厂内部保留类型，公共服务只使用受验证的能力会话。
 
-读取处理器只接收 account、session 和已经解析的输入；写入处理器还接收 artifacts、step 和 remember，用于读取冻结内容和记录平台阶段。注册时必须提供实际处理器，公共服务不会生成空实现。
+读取处理器只接收 account、session 和已经解析的输入；写入处理器还接收 artifacts 和 remember。单次写入用 writeCapability，复合流程用 workflowCapability 编译步骤，再用 stepHandler 提供有类型的输入、依赖和输出。步骤记录由公共执行器负责，不由平台手动包裹回执。注册时必须提供实际处理器，公共服务不会生成空实现。
 
 ## 冻结计划
 
 article plan FILE --to PLATFORM:main --intent draft/publish 创建计划；plan inspect ID 展示实际平台产物及资产摘要；plan run ID 从快照执行。通用能力使用 plan create CAPABILITY --to TARGETS --input JSON，同样调用 PlanningService。
 
 SDK 可调用 service.planning.create，保存 plan.id，稍后 service.start(plan.id) 建立任务并 service.run(job.id)。准备器使用 PreparationContext.capture/source/asset 捕获文本或二进制内容；执行时通过 context.artifacts 读取或定位快照。不要把原始绝对路径放入 prepared payload。源路径只保留在计划输入中作为来源信息，不进入去重键。
+
+## 操作与内容记录
+
+任务结果返回 operation_id。相同目标的其他计划共用该权威记录；任务摘要被删除或损坏不触发远端重发。publication list/get 查询本地远端引用与修订关联，publication rebuild 从操作记录重建索引。它们不宣称刚刚在线确认远端内容。
+
+job refresh 保存带时间的 observation，和历史执行结果分开报告。索引或日志失败出现在 diagnostics；应修复本地存储或重建索引，不因此使用 --new-copy 重发。
 
 公开 SDK 只导出新契约。旧单平台命令树与转接导出已删除，旧任务和账号文件不参与新流程。

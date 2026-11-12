@@ -4,7 +4,7 @@
 
 基于 [Ganzhib/juejin-cli](https://github.com/Ganzhib/juejin-cli) 派生，保留来源历史和 MIT 许可证。公众号排版使用文颜 core；浏览器流程分别适配宝玉和小红书开源实现，来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-当前开发版本为 0.2.0-alpha.2。账号和任务格式直接替换旧结构，不读取旧布局或自动搬迁数据。账号继续使用第一批建立的身份绑定。
+当前开发版本为 0.2.0-alpha.3。新计划和操作记录直接替换旧执行契约，不读取旧任务或自动迁移数据。账号继续使用第一批建立的身份绑定。
 
 ## 当前能力
 
@@ -66,9 +66,14 @@ wm article publish note.md --platform xiaohongshu --json
 # 读取平台内容
 wm article list --platform xiaohongshu --limit 20 --json
 wm draft list --platform wechat --json
+wm publication list --json
+wm publication get PUBLICATION_ID --json
+wm publication rebuild --json
 ```
 
 相同内容修订、实际平台产物、操作和目标复用已有计划与任务。源文件位置、账号别名、目标顺序及 CLI 版本不参与计划身份。正文和本地图片按摘要保存；执行旧计划不再读取原文件，修改或移走原稿不会改变旧计划。HTTP(S) 图片仅冻结 URL，不宣称冻结远端字节。明确再发一份时传 `--new-copy`。
+
+去重落实到每个真实账号的操作记录：先发 A、B 再发 A、C，A 引用原记录，不会再次发送。工作流记录实际步骤、依赖、处理器版本和回执；已完成步骤跳过，未知写入停止。Publication 索引与任务摘要从操作记录派生，索引删除后可重建，不作为是否重发的判断依据。
 
 ## Markdown 格式
 

@@ -26,7 +26,6 @@ export type OperationResult = z.infer<typeof operationResultSchema>;
 export interface OperationContext {
   account: AccountScope;
   artifacts: ArtifactReader;
-  step<T>(name: string, action: () => Promise<T>): Promise<T>;
   remember(remote: RemoteReference): Promise<void>;
 }
 export interface CapabilityContext<S> extends OperationContext { session: S }

@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AccountBinding, AccountIdentity, AccountProfile, AccountScope } from '../core/types.js';
 import { accountBindingSchema, accountIdentitySchema } from '../core/types.js';
-import { parseInput } from '../core/capability.js';
+import { parseInput } from '../core/validation.js';
 import { CliError } from '../shared/errors.js';
 import { readJson, writeJson, withFileLock } from './storage.js';
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, platformFixture } from './helpers.js';
 import { writeJson } from '../src/runtime/storage.js';
@@ -87,14 +87,11 @@ test('an uncertain direct write is durably recorded even without driver step cal
 
 test('explicit rejection can resume without repeating a successful inner upload', async t => {
   let uploads = 0, writes = 0;
-  const one = platformFixture('one', async context => {
-    await context.step('upload', async () => { uploads++; return { id: 'asset' }; });
-    return context.step('send', async () => {
-      writes++;
-      if (writes === 1) throw new CliError('API', 'rejected', { outcome: 'rejected' });
-      return { status: 'published' };
-    });
-  });
+  const one = platformFixture('one', async () => {
+    writes++;
+    if (writes === 1) throw new CliError('API', 'rejected', { outcome: 'rejected' });
+    return { status: 'published' };
+  }, { upload: async () => { uploads++; return { id: 'asset' }; } });
   const { service } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
   assert.equal((await service.run(job.id)).targets[0].status, 'rejected');
@@ -105,10 +102,13 @@ test('explicit rejection can resume without repeating a successful inner upload'
 test('interrupted running steps and incomplete remote evidence never cause a new write', async t => {
   let writes = 0;
   const one = platformFixture('one', async () => { writes++; return { status: 'published' }; }, { inspect: async () => ({ status: 'draft_saved', remote: { kind: 'draft', id: 'saved' } }) });
-  const { service, home } = await fixture(t, [one]);
+  const { service } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
-  job.targets[0].steps.send = { phase: 'running' }; job.targets[0].remote = { kind: 'draft', id: 'saved' };
-  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
+  const plan = await service.planning.get(job.planId);
+  await service.operations.use(plan, plan.targets[0], async record => {
+    record.steps['capability.execute'] = { phase: 'running' }; record.references = [{ kind: 'draft', id: 'saved' }]; record.status = 'running';
+    await service.operations.save(record);
+  });
   assert.equal((await service.run(job.id)).targets[0].status, 'unknown');
   assert.equal((await service.refresh(job.id)).targets[0].status, 'unknown');
   await service.run(job.id); assert.equal(writes, 0);
@@ -123,14 +123,15 @@ test('generic reads preserve zero and false and reuse a single verified session'
 
 test('stored payloads and driver revisions are checked before any connection', async t => {
   const one = platformFixture('one', async () => ({ status: 'published' }));
-  const { service, home } = await fixture(t, [one]);
+  const { service } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
-  job.targets[0].variantId = '0'.repeat(64);
-  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
+  const plan = await service.planning.get(job.planId);
+  const { variant } = await service.planning.variant(plan.targets[0]);
+  const path = service.planning.objects.path(variant.payload);
+  const bytes = await readFile(path);
+  await writeFile(path, JSON.stringify({ body: 42 }));
   await assert.rejects(service.run(job.id), (error: CliError) => error.code === 'INPUT');
-  job.targets[0].variantId = (await service.planning.get(job.planId)).targets[0].variantId; job.targets[0].driver.version = 'different';
-  assert.equal(one.platform.driver.version, '2');
-  await writeJson(join(home, 'jobs', job.id, 'job.json'), job);
+  await writeFile(path, bytes); one.platform.driver.version = 'different';
   assert.equal((await service.get(job.id)).id, job.id);
   await assert.rejects(service.run(job.id), /版本/);
   assert.equal(one.counts.sessions, 0);

@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { TestContext } from 'node:test';
 import { z } from 'zod';
+import { stepHandler } from '../src/core/workflow.js';
 import { definePlatform } from '../src/core/platform.js';
-import { readCapability, writeCapability } from '../src/core/capability.js';
+import { readCapability, writeCapability, workflowCapability } from '../src/core/capability.js';
 import type { CapabilityContext, OperationResult } from '../src/core/types.js';
 import { AccountRepository } from '../src/runtime/accounts.js';
 import { readJson, writeJson } from '../src/runtime/storage.js';
@@ -15,7 +16,7 @@ import { PublishingService } from '../src/services/publishing.js';
 export interface TestSession { profile: { id: string; name: string }; directory: string }
 const payloadSchema = z.strictObject({ body: z.string().min(1) });
 export function platformFixture(id: string, execute: (context: CapabilityContext<TestSession>, payload: z.infer<typeof payloadSchema>) => Promise<OperationResult>, settings: {
-  inspect?: () => Promise<OperationResult>; observedId?: string;
+  inspect?: () => Promise<OperationResult>; observedId?: string; upload?: () => Promise<{ id: string }>;
 } = {}) {
   const counts = { sessions: 0, closes: 0 };
   const platform = definePlatform<TestSession>({
@@ -28,7 +29,18 @@ export function platformFixture(id: string, execute: (context: CapabilityContext
       finally { counts.closes++; }
     },
     capabilities: [
-      writeCapability<TestSession>()({
+      settings.upload ? workflowCapability<TestSession>()({
+        id: 'newsletter.send', description: 'Send newsletter', acceptance: { offline: true, liveRead: false, liveWrite: false },
+        input: payloadSchema, prepared: payloadSchema, output: operationResultSchema, successStates: ['published'], prepare: async input => input, preflight: async () => undefined,
+        compile: input => ({ id: 'newsletter.send', version: '1', resultStep: 'send', steps: [
+          { id: 'upload', handler: 'upload', version: '1', needs: [], input: {} },
+          { id: 'send', handler: 'send', version: '1', needs: ['upload'], input },
+        ] }),
+        handlers: {
+          upload: stepHandler<TestSession>()({ version: '1', effect: 'remote-write', input: z.strictObject({}), dependencies: z.strictObject({}), output: z.object({ id: z.string() }), execute: settings.upload }),
+          send: stepHandler<TestSession>()({ version: '1', effect: 'remote-write', input: payloadSchema, dependencies: z.object({ upload: z.object({ id: z.string() }) }), output: operationResultSchema, execute }),
+        },
+      }) : writeCapability<TestSession>()({
         id: 'newsletter.send', description: 'Send a newsletter', acceptance: { offline: true, liveRead: false, liveWrite: false },
         input: payloadSchema, prepared: payloadSchema, output: operationResultSchema, successStates: ['published'], prepare: async input => input,
         preflight: async () => undefined, execute, ...(settings.inspect ? { inspect: settings.inspect } : {}),

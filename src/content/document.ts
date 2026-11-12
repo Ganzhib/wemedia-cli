@@ -3,7 +3,7 @@ import matter from 'gray-matter';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 import { z } from 'zod';
-import { parseInput } from '../core/capability.js';
+import { parseInput } from '../core/validation.js';
 import { inferredTitle, localImagePath, scanImages, rewriteImages } from './markdown.js';
 import { CliError } from '../shared/errors.js';
 import { artifactSchema, type ContentPreparation } from '../core/content.js';

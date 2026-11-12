@@ -6,6 +6,7 @@
 - Generate command syntax from Commander and capability payload schemas from their Zod definitions. Do not duplicate platform input schemas. Use the package root from `src/package.ts` when locating bundled assets.
 - Trust typed successful platform responses. Handle business error codes and nullable `data` at the HTTP boundary; validate user files and command arguments at their input boundaries.
 - Never automatically replay writes after an exception or timeout. Preserve operation receipts and return existing draft/column IDs on failures.
+- Compile actual workflow dependencies in each capability. OperationRecord is the sole write authority; summaries, publication indexes and event logs are rebuildable projections. Include every behavior-changing option in prepared payloads. Never infer whether to retry from an index or a task summary.
 - Bind tasks to stable platform/account identities; aliases never own sessions or locks. Use AccountRepository.use and Platform.withSession for one locked, verified connection per operation. Do not add old-layout readers or automatic migration.
 - Keep account cookies local, out of logs, fixtures, commits and upload-host requests. Offline tests must use fabricated credentials.
 - PlanningService owns frozen plans and revisions; ObjectStore owns byte integrity. Capture local inputs before opening platform sessions. Prepared payloads contain artifact references, not original paths; drivers must never reread author files after authentication.

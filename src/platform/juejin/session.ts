@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Cookie } from 'playwright';
 import { z } from 'zod';
-import { parseInput } from '../../core/capability.js';
+import { parseInput } from '../../core/validation.js';
 import { CliError } from '../../shared/errors.js';
 import { JuejinHttp } from './http.js';
 

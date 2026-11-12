@@ -4,21 +4,22 @@ import { z } from 'zod';
 import { accountIdentitySchema } from '../core/types.js';
 import { digestSchema, artifactSchema, variantSchema, revisionSchema, type PreparedVariant } from '../core/content.js';
 import type { PlatformRegistry } from '../core/registry.js';
-import { parseInput } from '../core/capability.js';
+import { workflowSchema } from '../core/workflow.js';
+import { parseInput } from '../core/validation.js';
 import { PreparationContext, immutableJson } from '../content/preparation.js';
 import { AccountRepository, validateName } from '../runtime/accounts.js';
 import { ObjectStore, canonicalJson, semanticDigest } from '../runtime/objects.js';
 import { readJson } from '../runtime/storage.js';
 import { CliError } from '../shared/errors.js';
 
-const planTargetSchema = z.object({
+export const planTargetSchema = z.object({
   identity: accountIdentitySchema, alias: z.string(), variantId: digestSchema,
   revisionId: digestSchema, contentDigest: digestSchema,
   driver: z.object({ id: z.string(), version: z.string() }),
-  workflow: z.object({ id: z.string(), version: z.string(), steps: z.array(z.string()) }),
+  workflow: workflowSchema,
 });
 export const planSchema = z.object({
-  schema: z.literal(1), id: digestSchema, integrity: digestSchema, input: artifactSchema, createdAt: z.string(), capabilityId: z.string(),
+  schema: z.literal(2), id: digestSchema, integrity: digestSchema, input: artifactSchema, createdAt: z.string(), capabilityId: z.string(),
   copyNonce: z.string(), targets: z.array(planTargetSchema),
 });
 export type PublishPlan = z.infer<typeof planSchema>;
@@ -31,7 +32,7 @@ export function parseTarget(value: string) {
 function planIdentity(plan: Pick<PublishPlan, 'capabilityId' | 'copyNonce' | 'targets'>) {
   const targets = plan.targets.map(({ identity, revisionId, contentDigest }) => ({ identity, revisionId, contentDigest }));
   targets.sort((a, b) => a.identity.bindingId.localeCompare(b.identity.bindingId));
-  return { capabilityId: plan.capabilityId, copyNonce: plan.copyNonce, targets };
+  return { contract: 'workflow-plan-v2', capabilityId: plan.capabilityId, copyNonce: plan.copyNonce, targets };
 }
 
 export class PlanningService {
@@ -66,11 +67,11 @@ export class PlanningService {
       const identity = await this.accounts.resolve(target.platform, target.alias);
       if (targets.some(entry => entry.identity.bindingId === identity.bindingId)) continue;
       targets.push({ identity, alias: target.alias, variantId: target.variant.id, revisionId: target.variant.revisionId, contentDigest: target.variant.digest,
-        driver: { ...platform.driver }, workflow: { id: capability.id, version: platform.driver.version, steps: ['capability.execute'] } });
+        driver: { ...platform.driver }, workflow: capability.compile(target.prepared) });
     }
     const base = { capabilityId, copyNonce: newCopy ? randomUUID() : '', targets };
     const inputArtifact = await this.objects.put(Buffer.from(canonicalJson(input)), 'application/json', '.json');
-    const record = { schema: 1 as const, id: semanticDigest(planIdentity(base)), input: inputArtifact, createdAt: new Date().toISOString(), ...base };
+    const record = { schema: 2 as const, id: semanticDigest(planIdentity(base)), input: inputArtifact, createdAt: new Date().toISOString(), ...base };
     const plan: PublishPlan = { ...record, integrity: semanticDigest(record) };
     return immutableJson(this.home, 'plans', plan.id, plan);
   }

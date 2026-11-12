@@ -38,8 +38,8 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const emit = (value: unknown) => output.success(value, json());
   const emitJob = (job: PublishJob) => {
     const result = { job_id: job.id, plan_id: job.planId, capability: job.capabilityId, targets: job.targets.map(target => ({
-      identity: target.identity, alias: target.alias, status: target.status, remote: target.remote, message: target.message, data: target.data,
-    })) };
+      identity: target.identity, alias: target.alias, operation_id: target.operationId, observation: target.observation, status: target.status, remote: target.remote, message: target.message, data: target.data,
+    })), diagnostics: job.diagnostics };
     const failed = job.targets.some(target => {
       const capability = registry.capability(target.identity.platformId, job.capabilityId);
       return capability.effect !== 'remote-write' || !capability.successStates.some(state => state === target.status);
@@ -132,6 +132,10 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
       if (!['publish', 'draft'].includes(flags.intent)) throw new CliError('INPUT', '--intent 仅支持 publish 或 draft。');
       emit(await service().planning.create(flags.intent === 'draft' ? 'draft.create' : 'content.publish', { file, options: flags.options ? await jsonFile(flags.options) : undefined }, flags.to.split(','), flags.newCopy));
     });
+  const publication = program.command('publication').description('查询本地远端引用与修订关联');
+  publication.command('list').action(async () => emit(await service().publications.list()));
+  publication.command('get <id>').action(async (id: string) => emit(await service().publications.get(id)));
+  publication.command('rebuild').action(async () => emit(await service().publications.rebuild()));
   const job = program.command('job').description('执行回执与恢复');
   job.command('get <id>').action(async (id: string) => emit(await service().get(id)));
   job.command('resume <id>').action(async (id: string) => emitJob(await service().run(id)));

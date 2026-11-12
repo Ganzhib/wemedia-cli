@@ -1,12 +1,13 @@
 import type { ArtifactReader } from '../../core/content.js';
-import { operationResultSchema } from '../../core/types.js';
+import { remoteReferenceSchema, operationResultSchema } from '../../core/types.js';
 import { JSDOM } from 'jsdom';
 import createDOMPurify from 'dompurify';
 import { errors, type BrowserContext, type Page } from 'playwright';
 import { z } from 'zod';
-import type { AccountProfile, CapabilityContext, OperationResult, RemoteReference } from '../../core/types.js';
+import type { AccountProfile, OperationResult, RemoteReference } from '../../core/types.js';
 import { definePlatform } from '../../core/platform.js';
-import { readCapability, writeCapability } from '../../core/capability.js';
+import { readCapability, workflowCapability } from '../../core/capability.js';
+import { stepHandler } from '../../core/workflow.js';
 import { listInputSchema, resourceListSchema } from '../../core/schemas.js';
 import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareArticle, preparedArticleSchema, type ArticleDocument } from '../../content/document.js';
 import { omitRepeatedTitle } from '../../content/markdown.js';
@@ -249,14 +250,6 @@ export async function publishWechatDraft(page: Page, draft: RemoteReference): Pr
   return { status: 'published', remote: { kind: 'article', id: draft.id, ...(url ? { url } : {}) } };
 }
 
-async function writeWechat(context: CapabilityContext<WechatSession>, article: WechatArticle, publish: boolean): Promise<OperationResult> {
-  const { browser, page } = context.session;
-  const draft = await context.step('draft.create', () => composeWechatDraft(browser, page, article, context.artifacts, remote => context.remember(remote)));
-  await context.remember(draft);
-  if (!publish) return { status: 'draft_saved', remote: draft };
-  return context.step('article.publish', () => publishWechatDraft(page, draft));
-}
-
 interface WechatDraftItem { app_id: number; title: string }
 interface WechatPublishedInfo { appmsgex: { appmsgid: number; itemidx: number; title: string; link: string }[] }
 interface WechatListData {
@@ -293,10 +286,23 @@ async function listWechat(page: Page, kind: 'draft' | 'article', limit: number) 
 export function createWechatPlatform(dependencies: { withBrowser?: typeof withAccountBrowser } = {}) {
   const browser = dependencies.withBrowser ?? withAccountBrowser;
   const acceptance = { offline: true, liveRead: false, liveWrite: false };
-  const writing = (id: string, description: string, publish: boolean) => writeCapability<WechatSession>()({
+  const handler = stepHandler<WechatSession>();
+  const writing = (id: string, description: string, publish: boolean) => workflowCapability<WechatSession>()({
     id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(wechatOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
     prepare: (raw, context) => prepareArticle(raw, context, 'wechat', wechatOptionsSchema, prepareWechat), preflight: async () => undefined,
-    execute: (context, article) => writeWechat(context, article, publish),
+    compile: article => ({ id, version: '1', resultStep: publish ? 'article.publish' : 'draft.result', steps: [
+      { id: 'draft.create', handler: 'draft.create', version: '1', needs: [], input: JSON.parse(JSON.stringify(article)) },
+      { id: publish ? 'article.publish' : 'draft.result', handler: publish ? 'article.publish' : 'draft.result', version: '1', needs: ['draft.create'], input: {} },
+    ] }),
+    handlers: {
+      'draft.create': handler({ version: '1', effect: 'remote-write', input: preparedSchema, dependencies: z.strictObject({}), output: remoteReferenceSchema,
+        execute: (context, article) => composeWechatDraft(context.session.browser, context.session.page, article, context.artifacts, remote => context.remember(remote)),
+      }),
+      'article.publish': handler({ version: '1', effect: 'remote-write', input: z.strictObject({}), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
+        execute: (context, _input, dependencies) => publishWechatDraft(context.session.page, dependencies['draft.create']) }),
+      'draft.result': handler({ version: '1', effect: 'read', input: z.strictObject({}), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
+        execute: async (_context, _input, dependencies) => ({ status: 'draft_saved' as const, remote: dependencies['draft.create'] }) }),
+    },
     inspect: async ({ session }, remote, expected) => {
       if (remote.kind === 'draft') {
         await navigatePlatform(session.page, editorUrl(session.page, remote.id));
@@ -310,7 +316,7 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
     },
   });
   return definePlatform<WechatSession>({
-    id: 'wechat', name: '微信公众号', driver: { id: 'wechat.browser', version: '3' },
+    id: 'wechat', name: '微信公众号', driver: { id: 'wechat.browser', version: '4' },
     login: directory => browser({ directory }, (_context, page) => wechatProfile(page, true)),
     withSession: (account, action) => browser(account, async (context, page) => action({ profile: await wechatProfile(page), browser: context, page })),
     capabilities: [

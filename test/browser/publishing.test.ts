@@ -177,7 +177,7 @@ test('WeChat capability runs through account binding, one browser session, real 
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'draft_saved', result.targets[0].message);
   assert.equal(result.targets[0].remote?.id, '123456');
-  assert.equal(result.targets[0].steps['draft.create'].phase, 'done');
+  assert.equal(result.targets[0].steps['draft.create'].phase, 'succeeded');
   assert.deepEqual(uploadedBytes, [...png]);
   await service.run(job.id);
   assert.deepEqual({ opens, closes, profileLoads }, { opens: 1, closes: 1, profileLoads: 1 });
