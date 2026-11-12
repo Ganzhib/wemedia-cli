@@ -101,12 +101,12 @@ test('explicit rejection can resume without repeating a successful inner upload'
 
 test('interrupted running steps and incomplete remote evidence never cause a new write', async t => {
   let writes = 0;
-  const one = platformFixture('one', async () => { writes++; return { status: 'published' }; }, { inspect: async () => ({ status: 'draft_saved', remote: { kind: 'draft', id: 'saved' } }) });
+  const one = platformFixture('one', async () => { writes++; return { status: 'published' }; }, { inspect: async () => ({ state: 'draft_saved', remote: { kind: 'draft', id: 'saved' } }) });
   const { service } = await fixture(t, [one]);
   const job = await service.create('newsletter.send', input, ['one']);
   const plan = await service.planning.get(job.planId);
   await service.operations.use(plan, plan.targets[0], async record => {
-    record.steps['capability.execute'] = { phase: 'running' }; record.references = [{ kind: 'draft', id: 'saved' }]; record.status = 'running';
+    record.steps['capability.execute'] = { phase: 'running', references: [] }; record.references = [{ kind: 'draft', id: 'saved' }]; record.status = 'running';
     await service.operations.save(record);
   });
   assert.equal((await service.run(job.id)).targets[0].status, 'unknown');

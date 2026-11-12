@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AccountScope, OperationContext, RemoteReference, OperationResult } from '../core/types.js';
 import type { PlatformRegistry } from '../core/registry.js';
 import { parseInput } from '../core/validation.js';
-import { validateWorkflow } from '../core/workflow.js';
+import { validateWorkflow, type Verification } from '../core/workflow.js';
 import { AccountRepository } from '../runtime/accounts.js';
 import { readJson, withFileLock, writeJson } from '../runtime/storage.js';
 import { PlanningService, type PlanTarget } from './planning.js';
@@ -16,7 +16,7 @@ import { CliError } from '../shared/errors.js';
 
 const jobIndexSchema = z.object({ schema: z.literal(4), id: z.string().regex(/^[a-f0-9]{32}$/), planId: z.string(), createdAt: z.string() });
 export type TargetJob = PlanTarget & {
-  operationId: string; status: string; steps: Record<string, StepRecord>;
+  operationId: string; status: string; executionStatus: string; verification?: Verification; requiredAction?: string; steps: Record<string, StepRecord>;
   remote?: RemoteReference;
   message?: string; data?: OperationResult['data'];
   observation?: OperationRecord['observations'][number];
@@ -37,7 +37,13 @@ export class PublishingService {
   }
   private file(id: string) { return join(this.home, 'jobs', jobName(id), 'job.json'); }
   private project(target: PlanTarget, id: string, operation?: OperationRecord): TargetJob {
-    return { ...target, operationId: id, status: operation?.result?.status ?? operation?.status ?? 'planned', steps: operation?.steps ?? {},
+    const pending = operation && Object.values(operation.steps).find(step => ['running', 'unknown', 'waiting_for_verification'].includes(step.phase));
+    let requiredAction: string | undefined;
+    if (operation && Object.values(operation.steps).some(step => step.phase === 'rejected' && step.failure?.code === 'AUTH')) requiredAction = 'login';
+    else if (pending) requiredAction = pending.verification ? 'scan_in_browser' : 'inspect_remote';
+    let status: string = operation?.status ?? 'planned';
+    if (operation?.status === 'completed' && operation.result) status = operation.result.status;
+    return { ...target, operationId: id, executionStatus: operation?.status ?? 'planned', verification: pending?.verification, requiredAction, status, steps: operation?.steps ?? {},
       remote: operation?.result?.remote ?? operation?.references.at(-1), message: operation?.message, data: operation?.result?.data, observation: operation?.observations.at(-1) };
   }
   async get(id: string): Promise<PublishJob> {
@@ -102,8 +108,10 @@ export class PublishingService {
               if (record.target.driver.id !== platform.driver.id || record.target.driver.version !== platform.driver.version) throw new CliError('INPUT', '原操作驱动版本不匹配。');
               await platform.withSession(account, async session => {
                 const availability = await session.probe(plan.capabilityId);
-                if (availability.state === 'unavailable') throw new CliError('AUTH', availability.reason);
-                await this.executor.run(record, capability, session, this.context(account, record));
+                if (availability.state === 'unavailable') throw new CliError(availability.action === 'login' ? 'AUTH' : 'UNSUPPORTED', availability.reason);
+                const context = this.context(account, record);
+                await this.executor.recover(record, capability, session, context);
+                await this.executor.run(record, capability, session, context);
               });
             }
             job.targets[index] = this.project(target, record.id, record);
@@ -111,7 +119,14 @@ export class PublishingService {
         } catch (error) {
           const record = await this.operations.find(operationId(plan, target));
           job.targets[index] = this.project(target, operationId(plan, target), record);
-          if (!record?.result) { job.targets[index].status = record?.status === 'running' ? 'unknown' : (record?.status === 'planned' ? 'rejected' : record?.status) ?? 'rejected'; job.targets[index].message = error instanceof Error ? error.message : String(error); }
+          if (!record?.result) {
+            const status = record?.status;
+            if (status === 'running') job.targets[index].status = 'unknown';
+            else if (!status || status === 'planned') job.targets[index].status = 'rejected';
+            else job.targets[index].status = status;
+            job.targets[index].message = error instanceof Error ? error.message : String(error);
+            if (error instanceof CliError && error.code === 'AUTH') job.targets[index].requiredAction = 'login';
+          }
         }
       }
       await this.projection(job); return job;
@@ -122,7 +137,7 @@ export class PublishingService {
     if (capability.effect === 'remote-write') return { effect: capability.effect, value: await this.run((await this.create(capabilityId, input, [platformId + ':' + alias], newCopy)).id) } as const;
     const prepared = await capability.prepare(input, new PreparationContext(this.home)); const identity = await this.accounts.resolve(platformId, alias);
     const value = await this.accounts.use(identity, account => this.registry.get(platformId).withSession(account, async session => {
-      const availability = await session.probe(capabilityId); if (availability.state === 'unavailable') throw new CliError('AUTH', availability.reason);
+      const availability = await session.probe(capabilityId); if (availability.state === 'unavailable') throw new CliError(availability.action === 'login' ? 'AUTH' : 'UNSUPPORTED', availability.reason);
       return session.read(capabilityId, prepared, { account, artifacts: this.planning.objects, remember: async () => { throw new Error('Read capability cannot record a write'); } });
     }));
     return { effect: 'read', value } as const;
@@ -132,16 +147,26 @@ export class PublishingService {
       const job = await this.get(id); const plan = await this.planning.get(job.planId);
       for (let index = 0; index < plan.targets.length; index++) {
         const target = plan.targets[index]; const capability = this.registry.capability(target.identity.platformId, plan.capabilityId);
-        if (capability.effect !== 'remote-write' || !capability.inspect) continue;
+        if (capability.effect !== 'remote-write') continue;
         const existing = await this.operations.find(operationId(plan, target)); if (!existing) continue;
-        const remote = existing.result?.remote ?? existing.references.at(-1); if (!remote) continue;
+
         try {
           const platform = this.registry.get(target.identity.platformId);
           if (platform.driver.id !== existing.target.driver.id || platform.driver.version !== existing.target.driver.version) throw new CliError('INPUT', '回查所需驱动版本不匹配。');
           const { prepared } = await this.planning.variant(existing.target); const payload = parseInput(capability.preparedSchema, prepared);
           await this.accounts.use(target.identity, account => this.operations.use(plan, target, record => platform.withSession(account, async session => {
-            const result = await session.inspect(plan.capabilityId, remote, payload, this.context(account, record));
-            record.observations.push({ time: new Date().toISOString(), result }); await this.operations.save(record);
+            const context = this.context(account, record);
+            try {
+              await this.executor.recover(record, capability, session, context);
+              const remote = record.result?.remote ?? record.references.at(-1);
+              if (remote && capability.inspect) {
+                const result = await session.inspect(plan.capabilityId, remote, payload, context);
+                record.observations.push({ time: new Date().toISOString(), result }); await this.operations.save(record);
+              }
+            } catch (error) {
+              record.observations.push({ time: new Date().toISOString(), error: { code: error instanceof CliError ? error.code : 'INTERNAL', message: error instanceof Error ? error.message : String(error) } });
+              await this.operations.save(record);
+            }
             job.targets[index] = this.project(target, record.id, record);
           })));
         } catch (error) { job.targets[index].message = error instanceof Error ? error.message : String(error); }

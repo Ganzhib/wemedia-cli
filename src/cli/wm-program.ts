@@ -6,7 +6,7 @@ import type { PlatformRegistry } from '../core/registry.js';
 import { defaultRegistry } from '../platform/builtins.js';
 import { AccountRepository, wmHome } from '../runtime/accounts.js';
 import { autoInstallSkill } from '../runtime/skills.js';
-import { PublishingService, type PublishJob } from '../services/publishing.js';
+import { PublishingService, type PublishJob, type TargetJob } from '../services/publishing.js';
 import { CliError } from '../shared/errors.js';
 import { VERSION } from '../package.js';
 import { CliOutput, type CliStreams } from './output.js';
@@ -25,6 +25,14 @@ function contentOptions(command: Command): Command {
     .option('--dry-run', '只准备内容，不登录、不上传、不保存任务').option('--new-copy', '明确创建新的发布副本');
 }
 
+function targetNextAction(jobId: string, target: TargetJob) {
+  switch (target.requiredAction) {
+    case 'login': return { command: 'wm', args: ['auth', 'login', target.identity.platformId, '--binding', target.identity.bindingId] };
+    case 'scan_in_browser': return { command: 'wm', args: ['job', 'resume', jobId] };
+    case 'inspect_remote': return { command: 'wm', args: ['job', 'refresh', jobId] };
+  }
+}
+
 export function createWmProgram(options: WmProgramOptions = {}): Command {
   const output = new CliOutput(options.streams ?? process);
   const program = new Command('wm').description('统一的多平台内容管理 CLI').version(VERSION)
@@ -38,7 +46,7 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
   const emit = (value: unknown) => output.success(value, json());
   const emitJob = (job: PublishJob) => {
     const result = { job_id: job.id, plan_id: job.planId, capability: job.capabilityId, targets: job.targets.map(target => ({
-      identity: target.identity, alias: target.alias, operation_id: target.operationId, observation: target.observation, status: target.status, remote: target.remote, message: target.message, data: target.data,
+      identity: target.identity, alias: target.alias, operation_id: target.operationId, observation: target.observation, status: target.status, execution_status: target.executionStatus, verification: target.verification, required_action: target.requiredAction, next_action: targetNextAction(job.id, target), remote: target.remote, message: target.message, data: target.data,
     })), diagnostics: job.diagnostics };
     const failed = job.targets.some(target => {
       const capability = registry.capability(target.identity.platformId, job.capabilityId);
@@ -71,10 +79,10 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
     });
 
   const auth = program.command('auth').description('建立账号身份并登录平台');
-  auth.command('login <platform>').option('--account <alias>', '账号别名', 'main').action(async (id: string, flags: { account: string }) => {
+  auth.command('login <platform>').option('--account <alias>', '账号别名', 'main').option('--binding <id>', '重新登录冻结的真实身份，不修改别名').action(async (id: string, flags: { account: string; binding?: string }) => {
     const definition = registry.get(id);
-    const binding = await accounts().login(id, flags.account, directory => definition.login(directory));
-    emit({ identity: binding.identity, name: binding.name, alias: flags.account });
+    const binding = flags.binding ? await accounts().reauthenticate(id, flags.binding, directory => definition.login(directory)) : await accounts().login(id, flags.account, directory => definition.login(directory));
+    emit({ identity: binding.identity, name: binding.name, alias: flags.binding ? undefined : flags.account });
   });
   auth.command('status [platform]').option('--account <alias>', '账号别名', 'main').action(async (id: string | undefined, flags: { account: string }) => {
     const identities = id ? [await accounts().resolve(registry.get(id).id, flags.account)] : (await accounts().list()).map(entry => entry.binding.identity);

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import type { CapabilityAvailability, CapabilityContext, CapabilityMetadata, OperationResult, RemoteReference } from './types.js';
+import type { CapabilityAvailability, CapabilityContext, CapabilityMetadata, OperationResult, RemoteReference, RemoteObservation } from './types.js';
 import type { ContentPreparation, ArtifactReader } from './content.js';
 import { parseInput } from './validation.js';
-import { stepHandler, validateWorkflow, type StepHandler, type CompiledWorkflow } from './workflow.js';
+import { stepHandler, validateWorkflow, type StepHandler, type CompiledWorkflow, type RecoveryState, type StepRecovery } from './workflow.js';
 
 interface BaseCapability<S> extends CapabilityMetadata {
   inputSchema: z.ZodType;
@@ -20,7 +20,7 @@ export interface WriteCapability<S> extends BaseCapability<S> {
   effect: 'remote-write';
   handlers: ReadonlyMap<string, StepHandler<S>>;
   compile(prepared: unknown): CompiledWorkflow;
-  inspect?(context: CapabilityContext<S>, remote: RemoteReference, prepared: unknown): Promise<OperationResult>;
+  inspect?(context: CapabilityContext<S>, remote: RemoteReference, prepared: unknown): Promise<RemoteObservation>;
 }
 export type Capability<S> = ReadCapability<S> | WriteCapability<S>;
 const unknownAvailability = async (): Promise<CapabilityAvailability> => ({ state: 'unknown', reason: '已验证身份；实际权限由操作的前置检查确定。' });
@@ -45,7 +45,7 @@ interface WriteDefinition<S, I, P, O extends OperationResult> extends Capability
   prepare(input: NoInfer<I>, context: ContentPreparation): Promise<NoInfer<P>>;
   preflight(prepared: NoInfer<P>, artifacts: ArtifactReader): Promise<void>;
   probe?: (session: S) => Promise<CapabilityAvailability>;
-  inspect?(context: CapabilityContext<S>, remote: RemoteReference, prepared: NoInfer<P>): Promise<OperationResult>;
+  inspect?(context: CapabilityContext<S>, remote: RemoteReference, prepared: NoInfer<P>): Promise<RemoteObservation>;
 }
 export function workflowCapability<S>() {
   return <I, P, O extends OperationResult>(definition: WriteDefinition<S, I, P, O> & {
@@ -68,6 +68,7 @@ export function workflowCapability<S>() {
 export function writeCapability<S>() {
   return <I, P, O extends OperationResult>(definition: WriteDefinition<S, I, P, O> & {
     execute(context: CapabilityContext<S>, prepared: NoInfer<P>): Promise<NoInfer<O>>;
+    recover?(context: CapabilityContext<S>, prepared: NoInfer<P>, state: RecoveryState<NoInfer<O>>): Promise<StepRecovery<NoInfer<O>>>;
   }): WriteCapability<S> => workflowCapability<S>()({
     ...definition,
     compile: prepared => ({ id: definition.id, version: '1', resultStep: 'capability.execute', steps: [
@@ -76,6 +77,7 @@ export function writeCapability<S>() {
     handlers: { execute: stepHandler<S>()({
       version: '1', effect: 'remote-write', input: definition.prepared, dependencies: z.strictObject({}), output: definition.output,
       execute: (context, input) => definition.execute(context, input),
+      ...(definition.recover ? { recover: (context: CapabilityContext<S>, input: P, _dependencies: {}, state: RecoveryState<O>) => definition.recover!(context, input, state) } : {}),
     }) },
   });
 }

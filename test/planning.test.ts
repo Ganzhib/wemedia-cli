@@ -102,20 +102,20 @@ test('renderer upgrades with identical output do not create a new copy; the save
   await assert.rejects(service.run((await service.start(first.id)).id), /版本/);
 });
 
-test('the real Juejin uploader reads frozen bytes even when authentication modifies the original image', async t => {
+test('the real Juejin uploader keeps frozen bytes and resolves a committed URI without uploading twice', async t => {
   const { home } = await fixture(t, []);
-  const file = await article(home, 'source'); let uploaded: Uint8Array | undefined; let requestBody: any;
+  const file = await article(home, 'source'); let uploaded: Uint8Array | undefined; let uploads = 0, resolutions = 0; let requestBody: any;
   const token = { AccessKeyId: 'fixture', SecretAccessKey: 'fixture', SessionToken: 'fixture' };
   const platform = createJuejinPlatform({ fetch: async (url, init) => {
     const parsed = new URL(String(url));
     if (parsed.searchParams.get('Action') === 'ApplyImageUpload') return Response.json({ Result: { UploadAddress: { SessionKey: 'opaque', UploadHosts: ['upload.snssdk.com'], StoreInfos: [{ StoreUri: 'image/path', Auth: 'upload' }] } } });
     if (parsed.searchParams.get('Action') === 'CommitImageUpload') return Response.json({ Result: { Results: [{ UriStatus: 2000 }] } });
-    if (parsed.hostname === 'upload.snssdk.com') { uploaded = init!.body as Uint8Array; return new Response('{}'); }
+    if (parsed.hostname === 'upload.snssdk.com') { uploads++; uploaded = init!.body as Uint8Array; return new Response('{}'); }
     let data: unknown;
     if (parsed.pathname.endsWith('/user/get')) { await writeFile(join(home, 'source', 'cover.png'), 'changed during auth'); data = { user_id: 'id', user_name: 'Creator' }; }
     else if (parsed.pathname.endsWith('query_category_briefs')) data = [{ category_id: '1', category_name: '前端', category_url: 'frontend' }];
     else if (parsed.pathname.endsWith('gen_token')) data = { token };
-    else if (parsed.pathname.endsWith('get_img_url')) data = { main_url: 'https://cdn.example/frozen.png' };
+    else if (parsed.pathname.endsWith('get_img_url')) { if (++resolutions === 1) throw new Error('URL response lost after commit'); data = { main_url: 'https://cdn.example/frozen.png' }; }
     else if (parsed.pathname.endsWith('article_draft/create')) { requestBody = JSON.parse(String(init!.body)); data = { id: 'saved' }; }
     else throw new Error('Unexpected request: ' + parsed.pathname);
     return Response.json({ err_no: 0, data });
@@ -126,7 +126,10 @@ test('the real Juejin uploader reads frozen bytes even when authentication modif
   const service = new PublishingService(home, new PlatformRegistry([platform]));
   const plan = await service.planning.create('draft.create', { file, options: { brief: '这是一段用于验证图像快照及实际上传路径的摘要，认证期间源文件发生变化，上传器仍应使用已冻结的内容而不是重新读取作者正在编辑的原始图片。', category: '1', tags: ['2'] } }, ['juejin']);
   await rm(file);
-  const result = await service.run((await service.start(plan.id)).id);
+  const job = await service.start(plan.id);
+  assert.equal((await service.run(job.id)).targets[0].status, 'unknown');
+  const result = await service.run(job.id);
+  assert.equal(uploads, 1);
   assert.equal(result.targets[0].status, 'draft_saved', result.targets[0].message);
   assert.deepEqual(Buffer.from(uploaded!), png);
   assert.match(requestBody.mark_content, /https:\/\/cdn.example\/frozen.png/);

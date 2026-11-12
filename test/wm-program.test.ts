@@ -81,3 +81,21 @@ test('the generic plan commands prepare offline and later execute the frozen inp
   assert.equal(JSON.parse(stdout).data.plan_id, id);
   assert.equal(one.counts.sessions, 1);
 });
+
+test('authentication recovery points at the frozen binding and the login command accepts it', async t => {
+  const one = platformFixture('one', async () => ({ status: 'published' }), { observedId: 'wrong-id' });
+  const { home, accounts } = await fixture(t, [one]);
+  const identity = await accounts.resolve('one'); const before = await accounts.binding(identity);
+  const path = join(home, 'input.json'); await writeFile(path, JSON.stringify({ body: 'Content' }));
+  let stdout = '', stderr = '';
+  const streams = { stdout: { write: (value: string) => { stdout += value; } }, stderr: { write: (value: string) => { stderr += value; } } };
+  const registry = new PlatformRegistry([one.platform]);
+  assert.equal(await runWmCli(['--home', home, 'platform', 'exec', 'one', 'newsletter.send', '--input', path, '--json'], { streams, registry }), 10);
+  const target = JSON.parse(stderr).error.details.targets[0];
+  assert.equal(target.required_action, 'login');
+  assert.deepEqual(target.next_action, { command: 'wm', args: ['auth', 'login', 'one', '--binding', identity.bindingId] });
+  stderr = '';
+  assert.equal(await runWmCli(['--home', home, 'auth', 'login', 'one', '--binding', identity.bindingId, '--json'], { streams, registry }), 0, stderr);
+  assert.deepEqual(JSON.parse(stdout).data.identity, identity);
+  assert.notEqual((await accounts.binding(identity)).sessionId, before.sessionId);
+});

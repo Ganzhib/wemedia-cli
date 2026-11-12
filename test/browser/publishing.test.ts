@@ -51,7 +51,7 @@ const editor=document.querySelector('.ProseMirror');
 const stored=localStorage.getItem('draft');
 if(stored){const saved=JSON.parse(stored);document.querySelector('#title').value=saved.title;editor.innerHTML=saved.body;}
 document.querySelector('input[type=file]').onchange=async e=>{
- window.uploadedBytes=Array.from(new Uint8Array(await e.target.files[0].arrayBuffer()));localStorage.setItem('uploadedBytes',JSON.stringify(window.uploadedBytes));
+ localStorage.setItem('uploadCount',String(Number(localStorage.getItem('uploadCount')||0)+1));window.uploadedBytes=Array.from(new Uint8Array(await e.target.files[0].arrayBuffer()));localStorage.setItem('uploadedBytes',JSON.stringify(window.uploadedBytes));
  const image=document.createElement('img');image.src='https://mmbiz.qpic.cn/uploaded.png';
  const selection=window.getSelection();if(selection.rangeCount&&editor.contains(selection.anchorNode)){selection.getRangeAt(0).insertNode(image);}else editor.append(image);
 };
@@ -146,14 +146,16 @@ test('WeChat list reads stable IDs from current page data and distinguishes empt
   await assert.rejects(readWechatList(page, 'draft', 10), (error: CliError) => error.code === 'PROTOCOL');
 });
 
-test('WeChat capability runs through account binding, one browser session, real composing and durable receipts', async t => {
+test('WeChat recovers the exact saved draft after a receipt failure without uploading or saving twice', async t => {
   const { home, file } = await contentFixture(t);
   let opens = 0, closes = 0, profileLoads = 0;
   let uploadedBytes: number[] = [];
+  let serverDraft: string | null = null, uploads = 0;
   const platform = createWechatPlatform({ withBrowser: async (_account, action) => {
     opens++;
     await writeFile(join(home, 'cover.png'), 'changed during login');
     const context = await browser(t);
+    if (serverDraft) await context.addInitScript(value => { if (location.protocol === 'https:') localStorage.setItem('draft', value); }, serverDraft);
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
       if (url.hostname === 'mmbiz.qpic.cn') return route.fulfill({ contentType: 'image/png', body: png });
@@ -162,28 +164,39 @@ test('WeChat capability runs through account binding, one browser session, real 
       if (url.pathname === '/cgi-bin/home') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<script>window.wx={data:{user_name:"wechat-id",nick_name:"Creator"}}</script><div class="new-creation__menu"><a target="_blank" href="/cgi-bin/appmsg?token=FIXTURE">文章</a></div>' });
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: editorFixture });
     });
-    try {
-      const result = await action(context, await context.newPage());
-      uploadedBytes = await context.pages().find(page => new URL(page.url()).pathname === '/cgi-bin/appmsg')!.evaluate('JSON.parse(localStorage.getItem("uploadedBytes"))');
-      return result;
+    try { return await action(context, await context.newPage()); }
+    finally {
+      const editor = context.pages().find(page => new URL(page.url()).pathname === '/cgi-bin/appmsg');
+      if (editor) {
+        serverDraft = await editor.evaluate('localStorage.getItem("draft")');
+        const bytes = await editor.evaluate('JSON.parse(localStorage.getItem("uploadedBytes"))');
+        if (bytes) uploadedBytes = bytes;
+        uploads += await editor.evaluate('Number(localStorage.getItem("uploadCount") || 0)');
+      }
+      await context.close(); closes++;
     }
-    finally { await context.close(); closes++; }
   } });
   const accounts = new AccountRepository(home);
   await accounts.login('wechat', 'main', async () => ({ id: 'wechat-id', name: 'Creator' }));
   const service = new PublishingService(home, new PlatformRegistry([platform]));
   const job = await service.create('draft.create', { file }, ['wechat']);
+  const persist = service.operations.save.bind(service.operations); let fail = true;
+  service.operations.save = async record => {
+    if (fail && record.steps['draft.create']?.phase === 'succeeded') { fail = false; throw new Error('receipt unavailable'); }
+    await persist(record);
+  };
   await rm(file);
+  assert.equal((await service.run(job.id)).targets[0].status, 'unknown');
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'draft_saved', result.targets[0].message);
   assert.equal(result.targets[0].remote?.id, '123456');
   assert.equal(result.targets[0].steps['draft.create'].phase, 'succeeded');
   assert.deepEqual(uploadedBytes, [...png]);
   await service.run(job.id);
-  assert.deepEqual({ opens, closes, profileLoads }, { opens: 1, closes: 1, profileLoads: 1 });
+  assert.deepEqual({ opens, closes, profileLoads, uploads }, { opens: 2, closes: 2, profileLoads: 2, uploads: 1 });
 });
 
-test('Xiaohongshu capability fills images and formal topics and captures the real submission response in one session', async t => {
+test('Xiaohongshu fills formal topics and recovers the original submission ID without publishing twice', async t => {
   const { home, file } = await contentFixture(t);
   let opens = 0, closes = 0, submissions = 0;
   let uploadedNote: number[] = [];
@@ -212,17 +225,23 @@ test('Xiaohongshu capability fills images and formal topics and captures the rea
       if (url.hostname === 'www.xiaohongshu.com') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: profile });
       return route.abort();
     });
-    try {
-      const page = await context.newPage(); const result = await action(context, page);
-      if (new URL(page.url()).hostname === 'creator.xiaohongshu.com') uploadedNote = await page.evaluate('window.uploadedBytes');
-      return result;
+    try { return await action(context, await context.newPage()); }
+    finally {
+      const page = context.pages()[0];
+      if (new URL(page.url()).hostname === 'creator.xiaohongshu.com') { const bytes = await page.evaluate('window.uploadedBytes'); if (bytes) uploadedNote = bytes; }
+      await context.close(); closes++;
     }
-    finally { await context.close(); closes++; }
   } });
   await new AccountRepository(home).login('xiaohongshu', 'main', async () => ({ id: 'abcdef012345', name: 'Creator' }));
   const service = new PublishingService(home, new PlatformRegistry([platform]));
   const job = await service.create('content.publish', { file, options: { content: '针对图文平台准备的正文。', tags: ['工程'] } }, ['xiaohongshu']);
+  const persist = service.operations.save.bind(service.operations); let fail = true;
+  service.operations.save = async record => {
+    if (fail && record.steps['capability.execute']?.phase === 'succeeded') { fail = false; throw new Error('receipt unavailable'); }
+    await persist(record);
+  };
   await rm(file);
+  assert.equal((await service.run(job.id)).targets[0].status, 'unknown');
   const result = await service.run(job.id);
   assert.equal(result.targets[0].status, 'submitted', result.targets[0].message);
   assert.equal(result.targets[0].remote?.kind, 'note');
@@ -230,10 +249,10 @@ test('Xiaohongshu capability fills images and formal topics and captures the rea
   assert.deepEqual(uploadedNote, [...png]);
   assert.deepEqual(submitted, { title: '实际流程', images: 1, topics: 1 });
   await service.run(job.id);
-  assert.deepEqual({ opens, closes, submissions }, { opens: 1, closes: 1, submissions: 1 });
+  assert.deepEqual({ opens, closes, submissions }, { opens: 2, closes: 2, submissions: 1 });
   const list = await service.invoke('xiaohongshu', 'main', 'article.list', { limit: 2 });
   assert.deepEqual(list.value, { items: [{ resource: { kind: 'note', id: '0123456789abcdef01234567', url: 'https://www.xiaohongshu.com/explore/0123456789abcdef01234567' }, title: '实际流程' }] });
-  assert.deepEqual({ opens, closes, submissions }, { opens: 2, closes: 2, submissions: 1 });
+  assert.deepEqual({ opens, closes, submissions }, { opens: 3, closes: 3, submissions: 1 });
 });
 
 test('WeChat list capabilities use the shared identity session and retain multi-item resource selectors', async t => {
@@ -259,4 +278,18 @@ test('WeChat list capabilities use the shared identity session and retain multi-
   assert.deepEqual((await service.invoke('wechat', 'main', 'draft.list', { limit: 3 })).value, { items: [{ resource: { kind: 'draft', id: '42' }, title: '草稿' }] });
   assert.deepEqual((await service.invoke('wechat', 'main', 'article.list', { limit: 3 })).value, { items: [{ resource: { kind: 'article', id: '43', url: 'https://mp.weixin.qq.com/s/example', selector: { item_index: '1' } }, title: '文章' }] });
   assert.deepEqual({ opens, closes }, { opens: 2, closes: 2 });
+});
+
+
+test('WeChat keeps the original verification flow open and records timeout without fabricating success', async t => {
+  for (const complete of [false, true]) {
+    const context = await browser(t);
+    const page = await context.newPage();
+    const body = editorFixture.replace(`document.querySelector('#dialogs').innerHTML='<div>发表成功</div><a href="https://mp.weixin.qq.com/s/fixture-public">查看文章</a>';`, "document.querySelector('#dialogs').innerHTML='<div>请管理员扫码验证</div>';" + (complete ? "setTimeout(()=>document.querySelector('#dialogs').innerHTML='<div>发表成功</div>',30);" : ''));
+    await context.route('**/*', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body }));
+    await page.goto('https://mp.weixin.qq.com/cgi-bin/home?token=PRIVATE_FIXTURE_TOKEN');
+    const action = publishWechatDraft(page, { kind: 'draft', id: '123456' }, complete ? 1000 : 40);
+    if (complete) assert.equal((await action).status, 'published');
+    else await assert.rejects(action, (error: CliError) => error.code === 'VERIFICATION' && error.details?.verification.resource.id === '123456' && !JSON.stringify(error.details).includes('PRIVATE_FIXTURE_TOKEN'));
+  }
 });
