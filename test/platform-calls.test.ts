@@ -104,12 +104,15 @@ test('a binary-only platform and custom resource kind require no changes to the 
 test('Juejin updates and publishes the original draft with conflict checks, normalized metadata and revision lineage', async t => {
   const { home } = await fixture(t, []); let creates = 0, updates = 0, publishes = 0;
   const original = { id: '101', title: 'Original', mark_content: 'Old body', brief_content: '这是一段用于验证草稿更新的原始摘要，保留既有分类、标签、封面及文章身份，在修改正文后仍然更新同一份远端草稿，不通过新建同标题文章来模拟更新。', category_id: '1', tag_ids: ['3', '2'], cover_image: 'https://cdn.example/old.png', edit_type: 10, html_content: '' };
-  let remote = { ...original };
+  let remote = { ...original }; let reads = 0;
+  const signedImage = 'https://p0-xtjj-private.juejin.cn/tos-cn-i-test/image.png?rk3s=upload&x-orig-sign=fabricated';
+  remote.cover_image = signedImage;
   const platform = createJuejinPlatform({ fetch: async (url, init) => {
     const path = new URL(String(url)).pathname; const body = init?.body ? JSON.parse(String(init.body)) : {};
     let data;
     if (path.endsWith('/user/get')) data = { user_id: 'id', user_name: 'Creator' };
-    else if (path.endsWith('article_draft/detail')) data = { article_draft: remote };
+    else if (path.endsWith('article_draft/detail')) { reads++; data = { article_draft: { ...remote, cover_image: (signedImage + reads).replace('rk3s=upload', 'rk3s=read'),
+      mark_content: remote.mark_content.replace(/x-orig-sign=\w+/g, 'x-orig-sign=fabricated' + reads).replaceAll('rk3s=upload', 'rk3s=read') } }; }
     else if (path.endsWith('article_draft/update')) { updates++; assert.equal(body.id, '101'); remote = { ...remote, ...body }; data = remote; }
     else if (path.endsWith('article_draft/create')) { creates++; data = { id: 'duplicate' }; }
     else if (path.endsWith('article/publish')) { publishes++; assert.equal(body.draft_id, '101'); data = { article_id: '202' }; }
@@ -120,7 +123,7 @@ test('Juejin updates and publishes the original draft with conflict checks, norm
     await new SessionStore(directory).save([{ name: 'sessionid', value: 'fabricated', domain: '.juejin.cn', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' }]); return { id: 'id', name: 'Creator' };
   });
   const service = new PublishingService(home, new PlatformRegistry([platform])); const file = join(home, 'update.md');
-  await writeFile(file, '# Updated\n\nUpdated complete body.');
+  await writeFile(file, '# Updated\n\nUpdated complete body.\n![Image](' + signedImage + ')');
   const base = (await service.invoke('juejin', 'main', 'resource.get', { resource: { kind: 'draft', id: '101' } })).value;
   const updated = await service.invoke('juejin', 'main', 'draft.update', { file, base });
   assert.equal(updated.effect, 'remote-write');
@@ -128,7 +131,7 @@ test('Juejin updates and publishes the original draft with conflict checks, norm
     assert.equal(updated.value.targets[0].status, 'draft_saved', updated.value.targets[0].message);
     assert.equal(updated.value.targets[0].remote?.id, '101');
   }
-  assert.equal(creates, 0); assert.equal(updates, 1); assert.deepEqual(remote.tag_ids, ['2', '3']); assert.equal(remote.cover_image, original.cover_image);
+  assert.equal(creates, 0); assert.equal(updates, 1); assert.deepEqual(remote.tag_ids, ['2', '3']); assert.equal(remote.cover_image, (signedImage + '1').replace('rk3s=upload', 'rk3s=read'));
   const stale = await service.create('draft.update', { file, options: { title: 'Another' }, base }, ['juejin']);
   const conflict = await service.run(stale.id); assert.equal(conflict.targets[0].requiredAction, 'review_remote_changes');
   assert.equal(conflict.targets[0].failure?.code, 'CONFLICT'); assert.equal(updates, 1);

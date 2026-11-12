@@ -16,9 +16,9 @@ export function contentChanges(before: unknown, after: unknown, path: (string | 
   }
   return [{ path, before, after }];
 }
-export function requireVersion(expected: Pick<ResourceSnapshot, 'resource' | 'version' | 'data'>, current: ResourceSnapshot): void {
+export function requireVersion(expected: Pick<ResourceSnapshot, 'resource' | 'version' | 'data'>, current: ResourceSnapshot, equivalent?: (before: ResourceSnapshot['data'], after: ResourceSnapshot['data']) => boolean): void {
   if (expected.version !== semanticDigest(expected.data)) throw new CliError('INPUT', '基准快照摘要不匹配，请重新读取远端资源。', { outcome: 'rejected' });
-  if (expected.version === current.version) return;
+  if (expected.version === current.version || equivalent?.(expected.data, current.data)) return;
   throw new CliError('CONFLICT', '远端内容已改变，停止更新，请先核对差异。', {
     outcome: 'rejected', reason: 'remote_version_changed', resource: expected.resource,
     expected_version: expected.version, actual_version: current.version, changes: contentChanges(expected.data, current.data), current,
