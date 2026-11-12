@@ -62,7 +62,7 @@ export async function prepareXhs(document: ArticleDocument, options: z.infer<typ
 
 async function fillXhs(page: Page, article: XhsArticle, artifacts: ArtifactReader): Promise<void> {
   await navigatePlatform(page, PUBLISH);
-  if (new URL(page.url()).pathname.includes('login')) throw new CliError('AUTH', '小红书创作者中心需要登录，请运行 wm auth login xiaohongshu。');
+  if (new URL(page.url()).pathname.includes('login')) throw new CliError('AUTH', '小红书创作者中心需要登录，请运行 wm auth login xiaohongshu。', { outcome: 'rejected' });
   const tab = page.locator('div.creator-tab').filter({ hasText: '上传图文', visible: true }).first();
   await tab.click();
   await page.locator('input[type="file"]').first().setInputFiles(article.assets.map(asset => artifacts.path(asset.artifact!)));
@@ -123,7 +123,9 @@ export async function submitXhs(page: Page, timeoutMs = 60_000): Promise<Operati
 
 async function publishXhs(context: CapabilityContext<XhsSession>, article: XhsArticle): Promise<OperationResult> {
   await fillXhs(context.session.page, article, context.artifacts);
-  return submitXhs(context.session.page);
+  const result = await submitXhs(context.session.page);
+  if (result.remote) await context.remember(result.remote);
+  return result;
 }
 
 async function ownNotes(page: Page, profile: AccountProfile, limit: number) {
@@ -159,15 +161,20 @@ export function createXiaohongshuPlatform(dependencies: { withBrowser?: typeof w
         input: articleInputSchema(xhsOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
         prepare: async (raw, context) => prepareArticle(raw, context, 'xiaohongshu', xhsOptionsSchema, prepareXhs),
         preflight: async () => undefined, execute: publishXhs,
+        recover: async (_context, _article, saved) => {
+          const remote = saved.references.find(reference => reference.kind === 'note');
+          if (!remote) return { verdict: 'indeterminate' as const, evidence: { source: 'note', message: '缺少本次提交的笔记 ID，不能按标题匹配或重复发布。' } };
+          return { verdict: 'effect_confirmed' as const, value: { status: 'submitted' as const, remote }, evidence: { source: 'note_submission_receipt', message: '该步骤已保存实际提交响应的笔记 ID，公开展示另行回查。', reference: remote } };
+        },
         probe: async ({ page }) => {
           await navigatePlatform(page, PUBLISH);
-          if (new URL(page.url()).pathname.includes('login')) return { state: 'unavailable', reason: '创作者中心需要登录。' };
+          if (new URL(page.url()).pathname.includes('login')) return { state: 'unavailable', reason: '创作者中心需要登录。', action: 'login' };
           return { state: 'unknown', reason: '创作者中心会话可用，填写时检查实际发布前置条件。' };
         },
         inspect: async ({ session }, remote) => {
           const notes = await ownNotes(session.page, session.profile, 100);
-          if (notes.some(note => note.id === remote.id)) return { status: 'published', remote };
-          return { status: 'submitted', remote, message: '自己的公开笔记列表尚未包含此 ID，可能仍在审核。' };
+          if (notes.some(note => note.id === remote.id)) return { state: 'published', remote };
+          return { state: 'submitted', remote, message: '自己的公开笔记列表尚未包含此 ID，可能仍在审核。' };
         },
       }),
       readCapability<XhsSession>()({

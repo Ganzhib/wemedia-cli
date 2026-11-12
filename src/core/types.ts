@@ -30,10 +30,13 @@ export interface OperationContext {
 }
 export interface CapabilityContext<S> extends OperationContext { session: S }
 export interface CapabilityAvailability {
-  state: 'available' | 'unavailable' | 'unknown'; reason: string;
+  state: 'available' | 'unavailable' | 'unknown'; reason: string; action?: 'login' | 'platform_permission';
 }
 export interface CapabilityMetadata {
   id: string; description: string;
   acceptance: { offline: boolean; liveRead: boolean; liveWrite: boolean };
 }
 export interface SessionProfile { profile: AccountProfile }
+
+export const remoteObservationSchema = z.object({ state: z.string(), remote: remoteReferenceSchema.optional(), message: z.string().optional() });
+export type RemoteObservation = z.infer<typeof remoteObservationSchema>;

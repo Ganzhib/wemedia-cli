@@ -46,3 +46,18 @@ test('old alias-based directories are never scanned or migrated', async t => {
   await assert.rejects(accounts.resolve('old-platform'), (error: CliError) => error.code === 'AUTH');
   await assert.rejects(accounts.resolve('../outside'), (error: CliError) => error.code === 'INPUT');
 });
+
+test('reauthentication restores the frozen identity after its old alias points elsewhere', async t => {
+  const one = platformFixture('one', async () => ({ status: 'published' }));
+  const { accounts } = await fixture(t, [one]);
+  const original = await accounts.resolve('one'); const before = await accounts.binding(original);
+  await accounts.login('one', 'other', async directory => { const profile = { id: 'other-id', name: 'Other' }; await writeJson(join(directory, 'profile.json'), profile); return profile; });
+  await accounts.alias('one', 'other', 'main', true);
+  await assert.rejects(accounts.reauthenticate('one', original.bindingId, async () => ({ id: 'wrong-id', name: 'Wrong' })), (error: CliError) => error.code === 'AUTH');
+  assert.equal((await accounts.binding(original)).sessionId, before.sessionId);
+  const restored = await accounts.reauthenticate('one', original.bindingId, directory => one.platform.login(directory));
+  assert.notEqual(restored.sessionId, before.sessionId);
+  assert.deepEqual(restored.identity, original);
+  assert.equal((await accounts.resolve('one')).accountId, 'other-id');
+  await assert.rejects(accounts.reauthenticate('two', original.bindingId, async () => { throw new Error('must not open'); }), (error: CliError) => error.code === 'AUTH');
+});

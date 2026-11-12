@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { TestContext } from 'node:test';
 import { z } from 'zod';
-import { stepHandler } from '../src/core/workflow.js';
+import { stepHandler, type StepRecovery, type RecoveryState } from '../src/core/workflow.js';
 import { definePlatform } from '../src/core/platform.js';
 import { readCapability, writeCapability, workflowCapability } from '../src/core/capability.js';
-import type { CapabilityContext, OperationResult } from '../src/core/types.js';
+import type { CapabilityContext, OperationResult, RemoteObservation } from '../src/core/types.js';
 import { AccountRepository } from '../src/runtime/accounts.js';
 import { readJson, writeJson } from '../src/runtime/storage.js';
 import { PlatformRegistry } from '../src/core/registry.js';
@@ -16,7 +16,7 @@ import { PublishingService } from '../src/services/publishing.js';
 export interface TestSession { profile: { id: string; name: string }; directory: string }
 const payloadSchema = z.strictObject({ body: z.string().min(1) });
 export function platformFixture(id: string, execute: (context: CapabilityContext<TestSession>, payload: z.infer<typeof payloadSchema>) => Promise<OperationResult>, settings: {
-  inspect?: () => Promise<OperationResult>; observedId?: string; upload?: () => Promise<{ id: string }>;
+  inspect?: () => Promise<RemoteObservation>; observedId?: string; upload?: () => Promise<{ id: string }>; recover?: (context: CapabilityContext<TestSession>, input: z.infer<typeof payloadSchema>, saved: RecoveryState<OperationResult>) => Promise<StepRecovery<OperationResult>>;
 } = {}) {
   const counts = { sessions: 0, closes: 0 };
   const platform = definePlatform<TestSession>({
@@ -38,12 +38,12 @@ export function platformFixture(id: string, execute: (context: CapabilityContext
         ] }),
         handlers: {
           upload: stepHandler<TestSession>()({ version: '1', effect: 'remote-write', input: z.strictObject({}), dependencies: z.strictObject({}), output: z.object({ id: z.string() }), execute: settings.upload }),
-          send: stepHandler<TestSession>()({ version: '1', effect: 'remote-write', input: payloadSchema, dependencies: z.object({ upload: z.object({ id: z.string() }) }), output: operationResultSchema, execute }),
+          send: stepHandler<TestSession>()({ version: '1', effect: 'remote-write', input: payloadSchema, dependencies: z.object({ upload: z.object({ id: z.string() }) }), output: operationResultSchema, execute, ...(settings.recover ? { recover: (context: CapabilityContext<TestSession>, input: z.infer<typeof payloadSchema>, _dependencies: unknown, saved: RecoveryState<OperationResult>) => settings.recover!(context, input, saved) } : {}) }),
         },
       }) : writeCapability<TestSession>()({
         id: 'newsletter.send', description: 'Send a newsletter', acceptance: { offline: true, liveRead: false, liveWrite: false },
         input: payloadSchema, prepared: payloadSchema, output: operationResultSchema, successStates: ['published'], prepare: async input => input,
-        preflight: async () => undefined, execute, ...(settings.inspect ? { inspect: settings.inspect } : {}),
+        preflight: async () => undefined, execute, ...(settings.recover ? { recover: settings.recover } : {}), ...(settings.inspect ? { inspect: settings.inspect } : {}),
       }),
       readCapability<TestSession>()({
         id: 'newsletter.metrics', description: 'Metrics', acceptance: { offline: true, liveRead: false, liveWrite: false },

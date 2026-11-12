@@ -232,7 +232,7 @@ function editorUrl(home: Page, id: string): string {
   return url.href;
 }
 
-export async function publishWechatDraft(page: Page, draft: RemoteReference): Promise<OperationResult> {
+export async function publishWechatDraft(page: Page, draft: RemoteReference, timeoutMs = 180_000): Promise<OperationResult> {
   await navigatePlatform(page, editorUrl(page, draft.id!));
   await page.getByRole('button', { name: '发表', exact: true }).or(page.getByRole('link', { name: '发表', exact: true })).filter({ visible: true }).first().click();
   const confirmation = page.locator('.weui-desktop-dialog:visible');
@@ -240,9 +240,9 @@ export async function publishWechatDraft(page: Page, draft: RemoteReference): Pr
   const verification = page.getByText(/请.*扫码|管理员.*验证/).first();
   if (await verification.isVisible()) process.stderr.write('微信要求管理员扫码确认此次发表，请在打开的窗口验证；完成后会自动继续。\n');
   try {
-    await page.getByText('发表成功', { exact: true }).first().waitFor({ state: 'visible', timeout: 180_000 });
+    await page.getByText('发表成功', { exact: true }).first().waitFor({ state: 'visible', timeout: timeoutMs });
   } catch {
-    if (await verification.isVisible()) throw new CliError('VERIFICATION', '微信发表仍需管理员扫码，任务已保留。');
+    if (await verification.isVisible()) throw new CliError('VERIFICATION', '微信发表仍需管理员扫码，任务已保留。', { verification: { kind: 'administrator_scan', strategy: 'inspect', resource: draft } });
     throw new CliError('UNKNOWN', '微信发表结果未确认，请查询任务和平台文章，勿重复提交。');
   }
   const links = page.locator('a[href^="https://mp.weixin.qq.com/s"]');
@@ -297,9 +297,43 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
     handlers: {
       'draft.create': handler({ version: '1', effect: 'remote-write', input: preparedSchema, dependencies: z.strictObject({}), output: remoteReferenceSchema,
         execute: (context, article) => composeWechatDraft(context.session.browser, context.session.page, article, context.artifacts, remote => context.remember(remote)),
+        recover: async (context, article, _dependencies, saved) => {
+          const remote = saved.references.find(reference => reference.kind === 'draft');
+          if (!remote) return { verdict: 'indeterminate' as const, evidence: { source: 'draft', message: '缺少保存返回的草稿 ID，不重新创建。' } };
+          await navigatePlatform(context.session.page, editorUrl(context.session.page, remote.id));
+          await verifyWechatDraft(context.session.page, article);
+          return { verdict: 'effect_confirmed' as const, value: remote, evidence: { source: 'draft.readback', message: '原草稿的标题、正文和图片已回读核对。', reference: remote } };
+        },
       }),
       'article.publish': handler({ version: '1', effect: 'remote-write', input: z.strictObject({}), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
-        execute: (context, _input, dependencies) => publishWechatDraft(context.session.page, dependencies['draft.create']) }),
+        execute: async (context, _input, dependencies) => {
+          const result = await publishWechatDraft(context.session.page, dependencies['draft.create']);
+          if (result.remote) await context.remember(result.remote);
+          return result;
+        },
+        recover: async (context, _input, dependencies, saved) => {
+          const confirmed = saved.references.find(reference => reference.kind === 'article');
+          if (confirmed) return { verdict: 'effect_confirmed' as const, value: { status: 'published' as const, remote: confirmed }, evidence: { source: 'publication_receipt', message: '该步骤已记录发表成功页面返回的引用。', reference: confirmed } };
+          const draft = dependencies['draft.create'];
+          const articles = await listWechat(context.session.page, 'article', 100);
+          const article = articles.find(article => article.id === draft.id);
+          if (article) {
+            const remote = { kind: 'article', id: article.id, ...(article.url ? { url: article.url } : {}) };
+            return { verdict: 'effect_confirmed' as const, value: { status: 'published' as const, remote }, evidence: { source: 'publication.list', message: '发表记录包含原草稿对应的稳定 ID。', reference: remote } };
+          }
+          if (saved.verification) {
+            await navigatePlatform(context.session.page, editorUrl(context.session.page, draft.id));
+            if (await context.session.page.getByText(/请.*扫码|管理员.*验证/).first().isVisible()) {
+              process.stderr.write('已恢复原发表验证页面，请完成管理员扫码。\n');
+              try {
+                await context.session.page.getByText('发表成功', { exact: true }).first().waitFor({ state: 'visible', timeout: 180_000 });
+                const remote = { kind: 'article', id: draft.id };
+                return { verdict: 'effect_confirmed' as const, value: { status: 'published' as const, remote }, evidence: { source: 'verification_success', message: '原验证流程显示发表成功。', reference: remote } };
+              } catch (error) { if (!(error instanceof errors.TimeoutError)) throw error; }
+            }
+          }
+          return { verdict: 'indeterminate' as const, evidence: { source: 'publication', message: '发表记录未确认此 ID，不能仅凭草稿存在再次发表。', reference: draft } };
+        } }),
       'draft.result': handler({ version: '1', effect: 'read', input: z.strictObject({}), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
         execute: async (_context, _input, dependencies) => ({ status: 'draft_saved' as const, remote: dependencies['draft.create'] }) }),
     },
@@ -307,12 +341,12 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
       if (remote.kind === 'draft') {
         await navigatePlatform(session.page, editorUrl(session.page, remote.id));
         await verifyWechatDraft(session.page, expected);
-        return { status: 'draft_saved', remote };
+        return { state: 'draft_saved', remote };
       }
       const articles = await listWechat(session.page, 'article', 100);
       const article = articles.find(article => article.id === remote.id);
-      if (!article) return { status: 'unknown', remote, message: '当前列表未返回此 ID，不能推断发布或删除成功。' };
-      return { status: 'published', remote: { ...remote, ...(article.url ? { url: article.url } : {}) } };
+      if (!article) return { state: 'unknown', remote, message: '当前列表未返回此 ID，不能推断发布或删除成功。' };
+      return { state: 'published', remote: { ...remote, ...(article.url ? { url: article.url } : {}) } };
     },
   });
   return definePlatform<WechatSession>({

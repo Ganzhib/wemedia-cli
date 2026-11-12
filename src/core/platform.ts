@@ -1,5 +1,6 @@
+import type { RecoveryState, StepRecovery } from './workflow.js';
 import type { Capability } from './capability.js';
-import type { AccountProfile, AccountScope, CapabilityAvailability, OperationContext, OperationResult, RemoteReference, SessionProfile } from './types.js';
+import type { AccountProfile, AccountScope, CapabilityAvailability, OperationContext, RemoteObservation, RemoteReference, SessionProfile } from './types.js';
 import { CliError } from '../shared/errors.js';
 
 export interface PlatformSession {
@@ -7,7 +8,8 @@ export interface PlatformSession {
   probe(capabilityId: string): Promise<CapabilityAvailability>;
   read(capabilityId: string, input: unknown, context: OperationContext): Promise<unknown>;
   executeStep(capabilityId: string, handlerId: string, input: unknown, dependencies: unknown, context: OperationContext): Promise<unknown>;
-  inspect(capabilityId: string, remote: RemoteReference, prepared: unknown, context: OperationContext): Promise<OperationResult>;
+  recoverStep(capabilityId: string, handlerId: string, input: unknown, dependencies: unknown, state: RecoveryState, context: OperationContext): Promise<StepRecovery>;
+  inspect(capabilityId: string, remote: RemoteReference, prepared: unknown, context: OperationContext): Promise<RemoteObservation>;
 }
 export interface Platform {
   id: string; name: string; driver: { id: string; version: string };
@@ -55,12 +57,25 @@ export function definePlatform<S extends SessionProfile>(definition: {
             if (!handler) throw new CliError('UNSUPPORTED', '工作流处理器不存在。');
             return handler.execute({ ...context, session }, input, dependencies);
           },
+          recoverStep: async (id, handlerId, input, dependencies, state, context) => {
+            const capability = get(id);
+            if (capability.effect !== 'remote-write') throw new Error('A read capability has no recovery');
+            const handler = capability.handlers.get(handlerId)!;
+            if (!handler.recover) return { verdict: 'indeterminate', evidence: { source: 'driver', message: '此步骤没有可用的回查证据。' } };
+            return handler.recover({ ...context, session }, input, dependencies, state);
+          },
           inspect: (id, remote, prepared, context) => {
             const capability = get(id);
             if (capability.effect !== 'remote-write' || !capability.inspect) throw new CliError('UNSUPPORTED', '此能力尚未实现结果回查。');
             return capability.inspect({ ...context, session }, remote, prepared);
           },
         });
+      }).catch(error => {
+        if (error instanceof CliError && error.code === 'AUTH') throw new CliError('AUTH', error.message, {
+          ...error.details, reason: 'authentication_required', required_identity: account.identity, required_action: 'login',
+          next_action: { command: 'wm', args: ['auth', 'login', definition.id, '--binding', account.identity.bindingId] },
+        });
+        throw error;
       });
     },
   };

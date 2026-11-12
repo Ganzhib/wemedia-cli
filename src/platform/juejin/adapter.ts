@@ -74,20 +74,47 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
       ] };
     },
     handlers: {
-      'asset.upload': handler({ version: '1', effect: 'remote-write', input: artifactSchema, dependencies: z.strictObject({}), output: z.string(), execute: (context, artifact) => context.session.uploader.upload(context.artifacts.path(artifact)) }),
-      'draft.create': handler({ version: '1', effect: 'remote-write', input: preparedSchema, dependencies: z.record(z.string(), z.string()), output: remoteReferenceSchema, execute: createDraft }),
+      'asset.upload': handler({ version: '1', effect: 'remote-write', input: artifactSchema, dependencies: z.strictObject({}), output: z.string(),
+        execute: async (context, artifact) => {
+          try { return await context.session.uploader.upload(context.artifacts.path(artifact)); }
+          catch (error) {
+            if (error instanceof CliError && error.details?.upload_status === 'committed') await context.remember({ kind: 'image-upload', id: error.details.uri as string });
+            throw error;
+          }
+        },
+        recover: async (context, _artifact, _dependencies, saved) => {
+          const remote = saved.references.find(reference => reference.kind === 'image-upload');
+          if (!remote) return { verdict: 'indeterminate' as const, evidence: { source: 'imagex', message: '缺少已提交的素材 URI，不能判断是否上传完成。' } };
+          const url = await context.session.uploader.resolveUrl(remote.id);
+          return { verdict: 'effect_confirmed' as const, value: url, evidence: { source: 'imagex.resolve', message: '已解析原素材 URI，没有重复上传。', reference: remote } };
+        } }),
+      'draft.create': handler({ version: '1', effect: 'remote-write', input: preparedSchema, dependencies: z.record(z.string(), z.string()), output: remoteReferenceSchema, execute: createDraft,
+        recover: async (context, _article, _dependencies, saved) => {
+          const remote = saved.references.find(reference => reference.kind === 'draft');
+          if (!remote) return { verdict: 'indeterminate' as const, evidence: { source: 'draft', message: '缺少本次创建的草稿 ID，不按标题推测。' } };
+          await context.session.client.draft(remote.id);
+          return { verdict: 'effect_confirmed' as const, value: remote, evidence: { source: 'draft.get', message: '原草稿 ID 可以回读。', reference: remote } };
+        } }),
       'article.publish': handler({ version: '1', effect: 'remote-write', input: z.object({ columns: z.array(z.string()) }), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
         execute: async (context, input, dependencies) => {
           const result = await context.session.client.publish(dependencies['draft.create'].id, input.columns);
-          return { status: 'submitted' as const, remote: { kind: 'article', id: result.article_id, url: 'https://juejin.cn/post/' + result.article_id } };
+          const remote = { kind: 'article', id: result.article_id, url: 'https://juejin.cn/post/' + result.article_id };
+          await context.remember(remote);
+          return { status: 'submitted' as const, remote };
+        },
+        recover: async (_context, _input, _dependencies, saved) => {
+          const remote = saved.references.find(reference => reference.kind === 'article');
+          if (!remote) return { verdict: 'indeterminate' as const, evidence: { source: 'article', message: '缺少本次发表返回的文章 ID，草稿存在不能证明发表结果。' } };
+          return { verdict: 'effect_confirmed' as const, value: { status: 'submitted' as const, remote }, evidence: { source: 'submission_receipt', message: '本步骤已保存服务器返回的文章 ID；当前展示状态另行观察。', reference: remote } };
         } }),
       'draft.result': handler({ version: '1', effect: 'read', input: z.object({ columns: z.array(z.string()) }), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,
         execute: async (_context, _input, dependencies) => ({ status: 'draft_saved' as const, remote: dependencies['draft.create'] }) }),
     },
     inspect: async ({ session }, remote) => {
-      if (remote.kind === 'draft') { await session.client.draft(remote.id); return { status: 'draft_saved', remote }; }
+      if (remote.kind === 'image-upload') return { state: 'asset_uploaded', remote };
+      if (remote.kind === 'draft') { await session.client.draft(remote.id); return { state: 'draft_saved', remote }; }
       await session.client.article(remote.id);
-      return { status: 'published', remote };
+      return { state: 'published', remote };
     },
   });
   return definePlatform({

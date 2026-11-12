@@ -51,4 +51,8 @@ SDK 可调用 service.planning.create，保存 plan.id，稍后 service.start(pl
 
 job refresh 保存带时间的 observation，和历史执行结果分开报告。索引或日志失败出现在 diagnostics；应修复本地存储或重建索引，不因此使用 --new-copy 重发。
 
+stepHandler 的 recover 接收类型化输入、依赖和本步骤的 references/verification。返回 effect_confirmed 时 value 必须满足该处理器输出；最终步骤还必须达到能力完成条件。not_applied 需要明确对应这次操作的证据。不可确认时返回 indeterminate，不能用草稿存在或标题匹配替代发表证据。直接写能力可在 writeCapability 提供相同的 recover。
+
+auth login PLATFORM --binding BINDING_ID 恢复指定真实身份；与 --account 登录不同，它不会移动别名。Verification 只保存种类、阶段、策略与安全资源标识，不保存 Cookie、验证码或带 Token 的后台 URL。
+
 公开 SDK 只导出新契约。旧单平台命令树与转接导出已删除，旧任务和账号文件不参与新流程。

@@ -1,6 +1,6 @@
 # 多平台发布的实现结构
 
-当前实现为 0.2 第三批操作去重与步骤记录。唯一可执行入口为 src/wm.ts，公共命令位于 cli/wm-program，内置平台只在 platform/builtins 装配。
+当前实现为 0.2 第四批回查与验证恢复。唯一可执行入口为 src/wm.ts，公共命令位于 cli/wm-program，内置平台只在 platform/builtins 装配。
 
 ## 调用链
 
@@ -15,6 +15,10 @@ wm CLI / SDK
 ~~~
 
 核心不再持有固定 draft/publish 接口、平台格式枚举或要求每个平台实现的列表全集。能力通过开放字符串 ID 注册，可声明 read 或 remote-write；读取和写入使用同一平台注册表。
+
+步骤 recover 返回 effect_confirmed、not_applied 或 indeterminate，携带本步骤的引用及观察证据。WorkflowExecutor 统一更新阶段：确认效果则跳过，明确未发生则标记 ready，其他情况保留 unknown/waiting。读取失败记录带时间的 error observation，不覆盖历史结果。远端状态为开放字符串，执行阶段和恢复判定属于通用控制契约。
+
+记住引用时同时关联当前步骤与操作记录，避免把另一步的草稿引用当作发表证据。掘金可以解析已提交 URI，公众号按稳定草稿 ID 回读，小红书按原提交响应 ID 恢复；不能安全重建的提交不会再次点击。公众号在当前进程保留浏览器与锁等待扫码，跨进程先查原发表记录，仅在原验证页面仍可恢复时等待它完成。
 
 ## 契约所有权
 
