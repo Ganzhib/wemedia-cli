@@ -148,7 +148,8 @@ async function uploadIntoEditor(page: Page, path: string): Promise<string> {
   }, before);
 }
 
-async function chooseCover(page: Page, source: string): Promise<void> {
+function backgroundImageUrl(style: string): string | undefined { return style.match(/url\(["']?(.*?)["']?\)/)?.[1]; }
+async function chooseCover(page: Page, source: string): Promise<string> {
   const emptyCover = page.locator('#js_cover_area .select-cover__btn').filter({ visible: true });
   if (await emptyCover.count()) await emptyCover.click();
   else {
@@ -157,13 +158,21 @@ async function chooseCover(page: Page, source: string): Promise<void> {
   }
   await page.locator('#js_cover_area .js_selectCoverFromContent').filter({ visible: true }).first().click();
   const dialog = page.locator('.weui-desktop-dialog:visible');
-  const image = dialog.locator('img').filter({ visible: true });
-  const matches = await image.evaluateAll((images, url) => images.findIndex(image => (image as HTMLImageElement).src.split('?')[0] === url.split('?')[0]), source);
-  if (matches < 0) throw new CliError('PROTOCOL', '封面选图窗口未包含刚上传的图片。');
-  await image.nth(matches).click();
+  // The native picker renders candidates as CSS background spans, not img elements.
+  const candidates = dialog.locator('.appmsg_content_img.cover').filter({ visible: true });
+  await candidates.first().waitFor({ state: 'visible' });
+  const backgrounds = await candidates.evaluateAll(elements => elements.map(element => getComputedStyle(element).backgroundImage));
+  const index = backgrounds.findIndex(background => backgroundImageUrl(background)?.split('?')[0] === source.split('?')[0]);
+  if (index < 0) throw new CliError('PROTOCOL', '封面选图窗口未包含刚上传的图片。');
+  // The card's selection mask covers the thumbnail; click its owning card.
+  await candidates.nth(index).locator('..').click();
   await dialog.getByRole('button', { name: '下一步', exact: true }).click();
   await page.locator('.weui-desktop-dialog:visible').getByRole('button', { name: /^(确认|确定)$/ }).click();
-  await page.locator('.js_cover_preview_new:visible, .js_cover_preview_square:visible').first().waitFor({ state: 'visible' });
+  const cover = page.locator('#js_cover_area .js_cover_preview_new:visible');
+  await cover.waitFor({ state: 'visible' });
+  const url = backgroundImageUrl(await cover.evaluate(element => getComputedStyle(element).backgroundImage));
+  if (!url || !/^https?:\/\/mmbiz\./.test(url)) throw new CliError('UNKNOWN', '封面裁剪尚未返回平台图片地址。');
+  return url;
 }
 
 export async function saveWechatDraft(page: Page): Promise<RemoteReference> {
@@ -233,7 +242,8 @@ async function fillWechatEditor(page: Page, article: WechatArticle, context: Wec
       cover = await reuseWechatImage(page, article.cover.artifact, context);
       extraCover = true;
     }
-    await chooseCover(page, cover); expectedCover = cover;
+    expectedCover = await chooseCover(page, cover);
+    await context.remember({ kind: 'cover', id: expectedCover, url: expectedCover, selector: { digest: article.cover.artifact.digest } }, 'asset');
     if (extraCover) {
       // The separate cover is only an upload source; do not add it to the author's body.
       await page.locator(EDITOR).evaluate((editor, url) => {
@@ -270,7 +280,7 @@ async function verifyWechatDraft(page: Page, article: WechatArticle, expectedCov
     coverMatches = await cover.count() > 0;
     if (coverMatches) {
       const background = await cover.evaluate(element => getComputedStyle(element).backgroundImage);
-      const actualCover = background.match(/url\(["']?(.*?)["']?\)/)?.[1];
+      const actualCover = backgroundImageUrl(background);
       coverMatches = actualCover?.split('?')[0] === expectedCover.split('?')[0];
     }
   }
@@ -281,7 +291,7 @@ async function verifyWechatDraft(page: Page, article: WechatArticle, expectedCov
 
 function recoveredCover(article: WechatArticle, references: RemoteReference[]): string | undefined {
   if (!article.cover?.artifact) return article.cover?.source;
-  const cover = references.find(reference => reference.kind === 'image' && reference.selector?.digest === article.cover!.artifact!.digest);
+  const cover = references.find(reference => reference.kind === 'cover' && reference.selector?.digest === article.cover!.artifact!.digest);
   if (!cover?.url) throw new CliError('UNKNOWN', '缺少本次封面上传的回执，无法确认完整草稿。');
   return cover.url;
 }
@@ -461,7 +471,7 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
         execute: async (_context, _input, dependencies) => ({ status: 'draft_saved' as const, remote: dependencies['draft.create'] }) }),
     };
   const writing = (id: string, description: string, publish: boolean) => workflowCapability<WechatSession>()({
-    id, description, acceptance, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(wechatOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
+    id, description, acceptance: publish ? acceptance : { ...acceptance, liveRead: true, liveWrite: true }, successStates: publish ? ['submitted', 'published'] : ['draft_saved'], input: articleInputSchema(wechatOptionsSchema), prepared: preparedSchema, output: operationResultSchema,
     prepare: (raw, context) => prepareArticle(raw, context, 'wechat', wechatOptionsSchema, (document, options) => prepareWechat(document, options, undefined, publish)), preflight: async () => undefined,
     compile: article => ({ id, version: '1', resultStep: publish ? 'article.publish' : 'draft.result', steps: [
       { id: 'draft.create', handler: 'draft.create', version: '1', needs: [], input: JSON.parse(JSON.stringify(article)) },
@@ -486,14 +496,14 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
     login: directory => browser({ directory }, (_context, page) => wechatProfile(page, true)),
     withSession: (account, action) => browser(account, async (context, page) => action({ profile: await wechatProfile(page), browser: context, page })),
     capabilities: [
-      readCapability<WechatSession>()({ id: 'resource.get', description: '读取草稿整组版本，或按稳定 ID 回查发表记录', acceptance,
+      readCapability<WechatSession>()({ id: 'resource.get', description: '读取草稿整组版本，或按稳定 ID 回查发表记录', acceptance: { ...acceptance, liveRead: true },
         input: z.strictObject({ resource: remoteReferenceSchema.extend({ kind: z.enum(['draft', 'article']), selector: z.object({ item_index: z.string().regex(/^\d+$/) }).strict().optional() }) }), output: resourceSnapshotSchema,
         execute: async ({ session }, input) => {
           if (input.resource.kind === 'draft') return readWechatSnapshot(session, { ...input.resource, kind: 'draft' });
           const items = (await listWechat(session.page, 'article', 100)).filter(article => article.id === input.resource.id && (!input.resource.selector || String(article.item_index) === input.resource.selector.item_index));
           return resourceSnapshot(input.resource, items.length ? 'published' : 'unknown', { items });
         } }),
-      workflowCapability<WechatSession>()({ id: 'draft.update', description: '核对整组版本后更新指定草稿子项并回读，不新建草稿', acceptance, successStates: ['draft_saved'],
+      workflowCapability<WechatSession>()({ id: 'draft.update', description: '核对整组版本后更新指定草稿子项并回读，不新建草稿', acceptance: { ...acceptance, liveRead: true, liveWrite: true }, successStates: ['draft_saved'],
         input: articleInputSchema(wechatOptionsSchema).extend({ base: wechatSnapshotSchema }), prepared: updatePreparedSchema, output: operationResultSchema, handlers,
         prepare: async (raw, context) => {
           const base = resourceBaseline(raw.base); const existing = selectedWechatItem(base);
@@ -523,7 +533,7 @@ export function createWechatPlatform(dependencies: { withBrowser?: typeof withAc
       writing('draft.create', '排版、上传正文图片、设置封面、保存并回读草稿', false),
       writing('content.publish', '正式发表；平台要求时等待管理员扫码，不包含群发', true),
       ...(['draft', 'article'] as const).map(kind => readCapability<WechatSession>()({
-        id: kind + '.list', description: kind === 'draft' ? '查询公众号草稿箱' : '查询公众号发表记录', acceptance,
+        id: kind + '.list', description: kind === 'draft' ? '查询公众号草稿箱' : '查询公众号发表记录', acceptance: { ...acceptance, liveRead: true },
         input: listInputSchema, output: resourceListSchema,
         execute: async ({ session }, input) => ({ items: (await listWechat(session.page, kind, input.limit)).map(article => ({
           resource: { kind, id: article.id, ...(article.url ? { url: article.url } : {}), ...(article.item_index !== undefined ? { selector: { item_index: String(article.item_index) } } : {}) }, title: article.title,

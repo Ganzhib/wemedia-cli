@@ -8,7 +8,8 @@ import { assetFrom, documentAssets, documentTitle, articleInputSchema, prepareAr
 import { artifactSchema } from '../../core/content.js';
 import { stepHandler } from '../../core/workflow.js';
 import { rewriteImages, scanImages, localImagePath, omitRepeatedTitle } from '../../content/markdown.js';
-import { resourceSnapshot, requireVersion, resourceBaseline } from '../../content/resources.js';
+import { resourceSnapshot, resourceBaseline } from '../../content/resources.js';
+import { requireDraftVersion as requireVersion, sameDraftContent } from './resource-version.js';
 import type { DraftInput } from './types.js';
 import { CliError } from '../../shared/errors.js';
 import { JuejinClient } from './client.js';
@@ -66,11 +67,18 @@ async function readDraft(client: JuejinClient, remote: z.infer<typeof remoteRefe
   const draft = await client.draft(remote.id);
   return resourceSnapshot({ ...remote, kind: 'draft' as const }, 'draft', draftData(draft));
 }
-function cachedImage(context: CapabilityContext<JuejinSession>, artifact: z.infer<typeof artifactSchema>, allocate: () => Promise<z.infer<typeof imageReceiptSchema>>) {
-  return context.uploads.use(artifact, 'article-image', 'imagex-v1', imageReceiptSchema, {
-    upload: async () => ({ value: await allocate() }),
-    revalidate: async saved => ({ value: { uri: saved.uri, url: await context.session.uploader.resolveUrl(saved.uri) } }),
-  });
+async function cachedImage(context: CapabilityContext<JuejinSession>, artifact: z.infer<typeof artifactSchema>, allocate: () => Promise<z.infer<typeof imageReceiptSchema>>) {
+  let uploadStarted = false;
+  try {
+    return await context.uploads.use(artifact, 'article-image', 'imagex-v1', imageReceiptSchema, {
+      upload: async () => { uploadStarted = true; return { value: await allocate() }; },
+      revalidate: async saved => ({ value: { uri: saved.uri, url: await context.session.uploader.resolveUrl(saved.uri) } }),
+    });
+  } catch (error) {
+    // This helper owns one atomic upload step; cache reads have no preceding write here.
+    if (!uploadStarted && error instanceof CliError) throw new CliError(error.code, error.message, { ...error.details, outcome: 'rejected' });
+    throw error;
+  }
 }
 
 const acceptance = { offline: true, liveRead: false, liveWrite: false };
@@ -124,13 +132,13 @@ export function createJuejinPlatform(dependencies: { fetch?: typeof globalThis.f
         },
         recover: async (context, article, uploads) => {
           const current = await readDraft(context.session.client, article.base.resource); const expected = await draftInput(article, uploads);
-          if (current.version !== resourceSnapshot(article.base.resource, 'draft', draftData(expected)).version) return { verdict: 'indeterminate' as const, evidence: { source: 'draft.get', message: '原草稿内容没有确认本次更新。', reference: article.base.resource } };
+          if (!sameDraftContent(current.data, draftData(expected))) return { verdict: 'indeterminate' as const, evidence: { source: 'draft.get', message: '原草稿内容没有确认本次更新。', reference: article.base.resource } };
           return { verdict: 'effect_confirmed' as const, value: article.base.resource.id, evidence: { source: 'draft.get', message: '原草稿回读匹配本次更新内容。', reference: article.base.resource } };
         } }),
       'draft.verify': handler({ version: '1', effect: 'read', input: updatePreparedSchema, dependencies: z.record(z.string(), z.string()), output: operationResultSchema,
         execute: async (context, article, uploads) => {
           const current = await readDraft(context.session.client, article.base.resource); const expected = await draftInput(article, uploads);
-          if (current.version !== resourceSnapshot(article.base.resource, 'draft', draftData(expected)).version) throw new CliError('UNKNOWN', '保存已获响应，回读尚未匹配；不会重复更新。');
+          if (!sameDraftContent(current.data, draftData(expected))) throw new CliError('UNKNOWN', '保存已获响应，回读尚未匹配；不会重复更新。');
           return { status: 'draft_saved' as const, remote: article.base.resource, observation: { state: 'draft', remote: article.base.resource, snapshot: current } };
         } }),
       'draft.result': handler({ version: '1', effect: 'read', input: z.object({ columns: z.array(z.string()) }), dependencies: z.object({ 'draft.create': remoteReferenceSchema }), output: operationResultSchema,

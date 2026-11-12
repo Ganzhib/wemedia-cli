@@ -58,10 +58,11 @@ document.querySelector('input[type=file]').onchange=async e=>{
  const selection=window.getSelection();if(selection.rangeCount&&editor.contains(selection.anchorNode)){selection.getRangeAt(0).insertNode(image);}else editor.append(image);
 };
 document.querySelector('#cover').onclick=()=>{
- document.querySelector('#dialogs').innerHTML='<div class="weui-desktop-dialog"><img width="128" height="128" src="https://mmbiz.qpic.cn/uploaded.png"><button id="next">下一步</button></div>';
+ document.querySelector('#dialogs').innerHTML='<div class="weui-desktop-dialog"><div style="position:relative;width:128px;height:128px"><span class="appmsg_content_img cover" style="display:block;width:128px;height:128px;background-image:url(https://mmbiz.qpic.cn/other.png)"></span><div class="card_mask_global apmsg_content_img_mask" style="position:absolute;inset:0">选择</div></div><div style="position:relative;width:128px;height:128px"><span class="appmsg_content_img cover" style="display:block;width:128px;height:128px;background-image:url(https://mmbiz.qpic.cn/uploaded.png)"></span><div class="card_mask_global apmsg_content_img_mask" style="position:absolute;inset:0">选择</div></div><button id="next" disabled>下一步</button></div>';
+ document.querySelectorAll('.appmsg_content_img.cover').forEach(candidate=>{candidate.parentElement.onclick=()=>{localStorage.setItem('chosenCover',getComputedStyle(candidate).backgroundImage);document.querySelector('#next').disabled=false;};});
  document.querySelector('#next').onclick=()=>{
   document.querySelector('#dialogs').innerHTML='<div class="weui-desktop-dialog"><button id="confirm">确认</button></div>';
-  document.querySelector('#confirm').onclick=()=>{document.querySelector('#dialogs').innerHTML='';document.querySelector('#coverPreview').className='js_cover_preview_new';document.querySelector('#coverPreview').textContent='已设置封面';document.querySelector('#coverPreview').style.backgroundImage='url(https://mmbiz.qpic.cn/uploaded.png)';};
+  document.querySelector('#confirm').onclick=()=>{document.querySelector('#dialogs').innerHTML='';document.querySelector('#coverPreview').className='js_cover_preview_new';document.querySelector('#coverPreview').textContent='已设置封面';document.querySelector('#coverPreview').style.backgroundImage='url(https://mmbiz.qpic.cn/cropped.png)';};
  };
 };
 document.querySelector('#js_submit button').onclick=()=>{
@@ -98,6 +99,7 @@ test('WeChat compose uploads at the body marker, sets cover, saves and reads bac
     cover: { source: './cover.png', artifact }, options: { author: '作者', summary: '摘要', preserveAuthor: false, preserveSummary: false },
   }, { artifacts: objects, uploads: new UploadCache(directory, { bindingId: 'a'.repeat(32), platformId: 'wechat', accountId: 'fixture' }, () => undefined), remember: async () => undefined });
   assert.deepEqual(draft, { kind: 'draft', id: '123456', selector: { item_index: '0' } });
+  assert.match(await page.evaluate(() => localStorage.getItem('chosenCover'))!, /uploaded.png/);
   assert.ok(!JSON.stringify(draft).includes('PRIVATE_FIXTURE_TOKEN'));
   const editor = context.pages().find(candidate => candidate !== page)!;
   assert.match(await editor.locator('.rich_media_content .ProseMirror').innerText(), /图片之前[\s\S]*图片之后/);

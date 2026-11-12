@@ -29,6 +29,10 @@ try {
   assert.equal(run([cli, '--version']).trim(), metadata.version);
   assert.equal(JSON.parse(run([cli, 'schema', 'article', 'publish', '--json'])).data.command.name, 'publish');
   assert.equal(JSON.parse(run([cli, 'platform', 'list', '--json'])).data.length, 4);
+  for (const name of ['write', 'screenshot', 'diagram', 'diagram-schema']) {
+    assert.equal(JSON.parse(run([cli, 'schema', 'content', name, '--json'])).data.command.name, name);
+  }
+  assert.ok(JSON.parse(run([cli, 'content', 'diagram-schema', '--json'])).data.properties.nodes);
   assert.equal(JSON.parse(run([cli, 'skill', 'status', '--json'])).data.state, 'installed');
   const skillSchema = JSON.parse(run([cli, 'schema', 'skill', 'install', '--json'])).data.command;
   assert.ok(!skillSchema.options.some(option => option.flags.startsWith('--name')));

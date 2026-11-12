@@ -69,3 +69,5 @@ plan diff 比较两份冻结计划的字段、正文和资产顺序；plan expor
 publication 的 ID 由真实身份与稳定资源引用派生。同一资源的创建、更新、发表形成 revisions 链，素材引用不参与内容分组。publication refresh 通过稳定账号身份调用 resource.get，并将最新状态或读取错误保存为独立观察，不改写历史执行成功。索引删除后查询仍从操作记录派生。
 
 素材复用使用 context.uploads.use(artifact, purpose, protocol, schema, hooks)。提供实际有效期时遵循 expiresAt；没有有效期或已到期时调用 revalidate，仅明确失效才重新上传。缓存投影写失败只产生 diagnostics，不能抹掉已确认的上传回执。平台不得自行猜测通用 TTL。
+
+素材缓存不判定整个工作流步骤的 outcome。独立上传处理器只有确认本步骤尚未开始写入时，才将缓存错误标为 rejected；组合编辑流程若已经触发平台自动保存，仍保留 unknown，不能因此重放正文或重新创建资源。

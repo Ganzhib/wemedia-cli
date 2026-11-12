@@ -14,6 +14,7 @@ import { VERSION } from '../package.js';
 import { CliOutput, type CliStreams } from './output.js';
 import { describeCommand } from './commands/schema.js';
 import { registerSkill } from './commands/skill.js';
+import { registerContent } from './commands/content.js';
 
 export interface WmProgramOptions { streams?: CliStreams; registry?: PlatformRegistry; jsonDiagnostics?: boolean }
 async function jsonFile(file: string): Promise<unknown> {
@@ -203,6 +204,7 @@ export function createWmProgram(options: WmProgramOptions = {}): Command {
     emit({ command: describeCommand(command), global_options: describeCommand(program).options, platforms });
   });
   registerSkill({ program, emit });
+  registerContent({ program, emit });
   program.command('doctor').description('检查本地环境').action(async () => {
     let browserInstalled = true;
     try { await access(chromium.executablePath()); } catch { browserInstalled = false; }
