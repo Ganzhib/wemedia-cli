@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="120" viewBox="0 0 1000 120" role="img" aria-labelledby="title desc">
+  <title id="title">你的 AI，又在等你派活？</title>
+  <desc id="desc">淘气工作室 · 给它找点新本事。打开工具箱。</desc>
+  <rect width="1000" height="120" rx="14" fill="#205b49"/>
+  <g transform="translate(40 34) rotate(-8 28 26)">
+    <path d="M14 0h28q14 0 14 14v24q0 14-14 14H0V14Q0 0 14 0" fill="#e4f2ad"/>
+    <g fill="#173b30"><circle cx="16" cy="23" r="4"/><circle cx="40" cy="23" r="4"/></g>
+    <path d="M22 31q6 9 12 0" fill="none" stroke="#173b30" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g font-family="Microsoft YaHei,PingFang SC,sans-serif">
+    <text x="125" y="53" fill="#fffdf3" font-size="28" font-weight="700">你的 AI，又在等你派活？</text>
+    <text x="125" y="87" fill="#d6e8dc" font-size="20">淘气工作室 · 给它找点新本事</text>
+    <rect x="756" y="34" width="205" height="52" rx="26" fill="#e4f2ad"/>
+    <text x="858" y="68" fill="#183c2d" font-size="24" font-weight="700" text-anchor="middle">打开工具箱 ↗</text>
+  </g>
+</svg>
