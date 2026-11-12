@@ -66,11 +66,18 @@ async function readDraft(client: JuejinClient, remote: z.infer<typeof remoteRefe
   const draft = await client.draft(remote.id);
   return resourceSnapshot({ ...remote, kind: 'draft' as const }, 'draft', draftData(draft));
 }
-function cachedImage(context: CapabilityContext<JuejinSession>, artifact: z.infer<typeof artifactSchema>, allocate: () => Promise<z.infer<typeof imageReceiptSchema>>) {
-  return context.uploads.use(artifact, 'article-image', 'imagex-v1', imageReceiptSchema, {
-    upload: async () => ({ value: await allocate() }),
-    revalidate: async saved => ({ value: { uri: saved.uri, url: await context.session.uploader.resolveUrl(saved.uri) } }),
-  });
+async function cachedImage(context: CapabilityContext<JuejinSession>, artifact: z.infer<typeof artifactSchema>, allocate: () => Promise<z.infer<typeof imageReceiptSchema>>) {
+  let uploadStarted = false;
+  try {
+    return await context.uploads.use(artifact, 'article-image', 'imagex-v1', imageReceiptSchema, {
+      upload: async () => { uploadStarted = true; return { value: await allocate() }; },
+      revalidate: async saved => ({ value: { uri: saved.uri, url: await context.session.uploader.resolveUrl(saved.uri) } }),
+    });
+  } catch (error) {
+    // This helper owns one atomic upload step; cache reads have no preceding write here.
+    if (!uploadStarted && error instanceof CliError) throw new CliError(error.code, error.message, { ...error.details, outcome: 'rejected' });
+    throw error;
+  }
 }
 
 const acceptance = { offline: true, liveRead: false, liveWrite: false };

@@ -1,7 +1,7 @@
 import { operationResultSchema } from '../src/core/types.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './helpers.js';
 import { createJuejinPlatform } from '../src/platform/juejin/adapter.js';
@@ -58,6 +58,14 @@ test('the real Juejin driver verifies once, creates the actual draft request and
   assert.deepEqual((await service.invoke('juejin', 'main', 'juejin.category.list', {})).value, { items: [{ resource: { kind: 'category', id: '1' }, title: '前端' }] });
   assert.deepEqual((await service.invoke('juejin', 'main', 'juejin.tag.search', { keyword: 'TypeScript' })).value, { items: [{ resource: { kind: 'tag', id: 'tag-1' }, title: 'TypeScript' }] });
   assert.equal((await service.invoke('juejin', 'main', 'juejin.column.list', { limit: 2 })).effect, 'read');
+  await writeFile(join(home, 'image.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVJkAAAAASUVORK5CYII=', 'base64'));
+  await writeFile(file, '# Cache failure\n\n![image](./image.png)');
+  await mkdir(join(home, 'cache')); await writeFile(join(home, 'cache', 'uploads'), 'blocked');
+  const cacheFailure = await service.invoke('juejin', 'main', 'draft.create', { file, options });
+  if (cacheFailure.effect === 'remote-write') assert.equal(cacheFailure.value.targets[0].status, 'rejected');
+  assert.equal(requests.filter(request => request.path.endsWith('gen_token')).length, 0);
+  assert.equal(requests.filter(request => request.path.endsWith('article_draft/create')).length, 1);
+
 });
 
 test('a binary-only platform and custom resource kind require no changes to the executor', async t => {

@@ -121,16 +121,23 @@ async function nativeUpload(context: CapabilityContext<ZhihuSession>, artifact: 
   await context.remember({ kind: 'image', id: receipt.id, url }, 'asset'); return receipt;
 }
 async function cachedUpload(context: CapabilityContext<ZhihuSession>, artifact: z.infer<typeof artifactSchema>, upload = () => nativeUpload(context, artifact)) {
-  return context.uploads.use(artifact, 'article-image', 'zhihu-image-v1', imageReceiptSchema, {
-    upload: async () => ({ value: await upload() }),
-    revalidate: async receipt => {
-      const response = await context.session.page.context().request.get('https://api.zhihu.com/images/' + receipt.id);
-      if (response.status() === 404) return undefined;
-      if (!response.ok()) throw new CliError('API', '知乎素材回查未成功。', { status: response.status() });
-      const image = await response.json() as { original_src?: string; src: string };
-      return { value: { id: receipt.id, url: image.original_src ?? image.src } };
-    },
-  });
+  let uploadStarted = false;
+  try {
+    return await context.uploads.use(artifact, 'article-image', 'zhihu-image-v1', imageReceiptSchema, {
+      upload: async () => { uploadStarted = true; return { value: await upload() }; },
+      revalidate: async receipt => {
+        const response = await context.session.page.context().request.get('https://api.zhihu.com/images/' + receipt.id);
+        if (response.status() === 404) return undefined;
+        if (!response.ok()) throw new CliError('API', '知乎素材回查未成功。', { status: response.status() });
+        const image = await response.json() as { original_src?: string; src: string };
+        return { value: { id: receipt.id, url: image.original_src ?? image.src } };
+      },
+    });
+  } catch (error) {
+    // Only this standalone upload handler can classify a pre-upload cache failure as rejected.
+    if (!uploadStarted && error instanceof CliError) throw new CliError(error.code, error.message, { ...error.details, outcome: 'rejected' });
+    throw error;
+  }
 }
 async function saveDraft(context: CapabilityContext<ZhihuSession>, article: ZhihuArticle, remote: z.infer<typeof remoteReferenceSchema>, uploads: Record<string, string>) {
   const page = context.session.page; await openEditor(context.session, remote.id);

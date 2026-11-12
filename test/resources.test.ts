@@ -52,6 +52,8 @@ test('uploads without advertised validity are revalidated, and cache write failu
   await cache.use(artifact, 'body', 'v1', schema, hooks); await cache.use(artifact, 'body', 'v1', schema, hooks);
   assert.equal(uploads, 1); assert.equal(checks, 1);
   const blocked = join(home, 'blocked'); await mkdir(join(blocked, 'cache'), { recursive: true }); await writeFile(join(blocked, 'cache', 'uploads'), 'blocked');
+  await assert.rejects(new UploadCache(blocked, identity, () => undefined).use(artifact, 'body', 'v1', schema, hooks), (error: CliError) => error.code === 'INPUT' && error.details?.outcome === undefined);
+  assert.equal(uploads, 1);
   // Block projection creation after a confirmed upload, without corrupting a cache read.
   const freshHome = join(home, 'fresh');
   const failing = new UploadCache(freshHome, identity, reason => warnings.push(reason));
