@@ -2,6 +2,20 @@
 
 ## wm 当前接口
 
+### 本地内容与配图
+
+`wm content` 准备本地素材，不使用平台账号会话。输出含文件路径、字节数和 SHA-256；已有文件不会被覆盖。
+
+```bash
+wm content write article.md --input - --json
+wm content screenshot https://ganzhib.github.io/wemedia-cli/ --output hero.png --width 1440 --height 1000 --json
+wm content screenshot https://ganzhib.github.io/wemedia-cli/ --selector '#playground' --output scenarios.png --json
+wm content diagram-schema --json
+wm content diagram architecture.json --output architecture.png --json
+```
+
+`write` 从文件或标准输入保存内容。`screenshot` 仅接受 HTTP(S) 页面，可用 `--full-page` 截取全页，或 `--selector` 截取唯一匹配的元素。`diagram` 接受节点坐标、标题、说明与连线的 JSON，按 `diagram-schema` 输出的定义校验，生成 PNG。绘图只渲染转义后的文本，不加载外部资源。
+
 命令定义与能力 schema 同源生成。主要内容管理入口：article preview/plan/publish、plan create/get/inspect/diff/export/run、resource get、draft create/update/publish/list、publication list/get/refresh/rebuild、job get/refresh/resume。
 
 平台能力不同：掘金和公众号支持已有草稿更新；知乎支持原草稿发表及服务器回读；小红书当前只有图文发表与公开笔记读取。通用调用使用 platform exec PLATFORM CAPABILITY --input FILE。成功结果在 stdout 的 data，错误在 stderr；resource get --output 写入未包装的完整快照，供后续 --base 使用。
