@@ -2,43 +2,42 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
-import { defaultRegistry } from '../../src/platform/builtins.js';
 
-for (const width of [1440, 390]) test(`site command studio, capability contracts and recovery work at ${width}px`, async t => {
+for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding and banner work at ${width}px`, async t => {
   const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
   const context = await browser.newContext({ viewport: { width, height: 900 } });
   const errors: string[] = []; const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-  await context.route('https://wm.test/**', async route => {
-    const path = new URL(route.request().url()).pathname;
-    if (path === '/catalog.json') return route.fulfill({ json: { platforms: defaultRegistry().describe() } });
-    const file = path === '/' ? '/index.html' : path;
+  await context.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'https://wm.test') return route.abort();
+    const file = url.pathname === '/' ? '/index.html' : url.pathname;
     const contentType = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
     return route.fulfill({ contentType, body: await readFile('site' + file) });
   });
   await page.addInitScript("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { document.documentElement.dataset.copied = text; } } });");
-  await page.goto('https://wm.test/'); await page.locator('.capability-card').first().waitFor();
+  await page.goto('https://wm.test/');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await page.locator('#platform-choice').selectOption('xiaohongshu');
-  assert.match(await page.locator('#command-status').innerText(), /不可执行/);
-  assert.equal(await page.locator('.prompt-copy').isDisabled(), true);
-  await page.locator('#intent-choice').selectOption('content.publish');
-  assert.match(await page.locator('#generated-command').innerText(), /wm article publish/);
-  await page.locator('#file-input').fill("my article'; touch NEVER.md");
-  const command = await page.locator('#generated-command').innerText();
-  assert.match(command, /'my article'\\''; touch NEVER.md'/);
-  await page.locator('[data-copy="generated-command"]').click();
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), command);
-  await page.getByRole('button', { name: '知乎', exact: true }).click();
-  assert.ok(await page.locator('.capability-card').count() > 0);
-  await page.locator('#capability-search').fill('resource.get');
-  assert.equal(await page.locator('.capability-card').count(), 1);
-  await page.locator('.capability-card button').click();
-  assert.match(await page.locator('#schema-json').innerText(), /inputSchema|input_schema|input/);
-  await page.keyboard.press('Escape'); assert.equal(await page.locator('#schema-dialog').isVisible(), false);
-  assert.equal(await page.locator('#resume-demo').isDisabled(), true);
-  await page.locator('[data-evidence="confirmed"]').click(); await page.locator('#resume-demo').click();
-  assert.match(await page.locator('#demo-write-label').innerText(), /跳过提交/);
-  await page.locator('#reset-demo').click(); assert.equal(await page.locator('#resume-demo').isDisabled(), true);
-  await page.locator('[data-evidence="absent"]').click(); assert.match(await page.locator('#recovery-explanation').innerText(), /列表里暂时找不到文章不算证据/);
+  assert.match(await page.locator('.name-intro').innerText(), /WeMedia.*自媒体/);
+  assert.equal(await page.locator('.studio-banner').getAttribute('href'), 'https://my.feishu.cn/wiki/Tj4ZwTpEUisrg3kojmbcnR9yn1I?create_from=create_doc_to_wiki');
+  for (const scenario of ['draft', 'update', 'share']) {
+    await page.locator(`[data-scenario="${scenario}"]`).click();
+    assert.equal(await page.locator(`[data-scenario="${scenario}"]`).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-scenario][aria-pressed="true"]').count(), 1);
+    const prompt = await page.locator('#scenario-prompt').innerText();
+    assert.match(prompt, scenario === 'share' ? /公众号与掘金/ : scenario === 'draft' ? /只存草稿/ : /修改公众号/);
+    await page.locator('[data-copy="scenario-prompt"]').click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), prompt);
+    assert.equal(await page.locator('#scenario-steps li').count(), 3);
+  }
+  await page.locator('[data-copy="setup-prompt"]').click();
+  assert.match(await page.evaluate(() => document.documentElement.dataset.copied ?? ''), /WeMedia.*alpha/);
+  await page.getByText('自行安装', { exact: true }).click();
+  assert.equal(await page.locator('#install-command').isVisible(), true);
+  // Clipboard denial must leave the requested text available for manual copying.
+  await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('denied'); }; });
+  await page.locator('[data-copy="install-command"]').click();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), await page.locator('#install-command').innerText());
+  assert.match(await page.locator('#copy-status').innerText(), /手动复制/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
 });
