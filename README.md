@@ -53,7 +53,29 @@
 
 把下面这段话复制给能操作本机的 AI 助手：
 
-> 请帮我安装 wm（WeMedia，自媒体发布助手）的最新版本，npm 包名是 @ganzhibin/wemedia-cli。检查运行环境并读取 wm 使用指导，然后引导我登录想使用的平台。准备好后，先问我要发布的内容和目标平台。
+> 请直接帮我安装并配置 wm（WeMedia，自媒体发布助手）的最新版本，让我之后能用自然语言把文章和图片发布到多个自媒体平台，由 AI 处理内容检查、平台排版、图片上传、草稿或发布及结果回查。我只需完成平台登录，以及平台要求的扫码或安全验证。
+>
+> 目前已接入：微信公众号（wechat）、小红书（xiaohongshu）、稀土掘金（juejin）、知乎（zhihu）。公众号支持图文草稿与发表，掘金支持 Markdown 草稿与发布，知乎支持文章草稿与发布，小红书支持图文笔记发布；各平台能力不同，小红书目前不支持保存草稿。实际可用功能与限制以安装版本的 schema、平台能力和 Skill 指导为准，不把“已接入”当成当前账号已通过线上验证。
+>
+> 官网：https://ganzhib.github.io/wemedia-cli/
+> 仓库：https://github.com/Ganzhib/wemedia-cli
+> npm 包：@ganzhibin/wemedia-cli；安装后的命令：wm。
+>
+> 请按以下步骤实际操作，不要只给我安装教程：
+>
+> 1. 检查环境：确认你能操作我的本机终端，而不是仅能操作远程沙箱。检查操作系统、Shell、Node.js、npm，以及已有 wm 的版本和可执行文件位置。需要 Node.js 22.16+，优先使用满足要求且仍受支持的 LTS；已有兼容环境就复用。缺失或版本不符时，优先沿用本机现有的 Node 版本管理器安装兼容 LTS，避免并存多套相互冲突的 Node/npm。若无法操作本机，请明确说明，并让我把本提示词交给具备本机终端能力的 AI，例如 Codex 桌面端或 Claude Code。
+>
+> 2. 安装或升级：先查询 npm 官方 registry 中该包的 latest 版本与 engines，再执行 npm install -g @ganzhibin/wemedia-cli@latest。遇到权限、网络、registry、Node 版本或命令路径问题，依据实际报错检查 npm prefix、PATH 和版本管理器 shim，修正原因后再执行；不要原样反复重试，不默认使用 sudo、关闭 TLS 校验或覆盖现有环境。若包不可用，先核对官网与仓库的当前安装说明，不臆造替代包名或命令。
+>
+> 3. 验证安装：运行 wm --version、wm schema --json 和 wm platform list --json，确认实际执行的是刚安装的版本，并能发现上述平台。若显示旧版本或找不到 wm，先定位可执行文件和 PATH 冲突，不将 npm 安装成功等同于配置完成。
+>
+> 4. 配置 AI 使用指导：先通过 wm skill --help 确认参数，按当前 AI 客户端选择 Skill 目录，检查 wm skill status --json；缺失或需升级时安装内置 wm Skill，必要时使用 --agent 或 --dir。保留已有自定义文件，发生冲突时说明并选择独立目录，不直接覆盖。读取返回目录中的 SKILL.md，再按目标平台读取 references 下的对应指导；保持 wm 作为统一入口，不套用其他平台的字段或操作步骤。
+>
+> 5. 登录目标平台：先问我准备使用哪些平台，再用 wm account list --json 检查已有绑定，对目标账号运行 wm auth status PLATFORM --account ALIAS --json。尚未绑定时运行 wm auth login PLATFORM --account ALIAS（首次默认别名为 main）；已有绑定失效时按 Skill 使用对应 binding 重新登录，保留账号身份。逐个平台打开登录窗口，浏览器由 wm 准备；引导我扫码或完成平台验证，等待完成后重新核验账号。不索取、展示或导出 Cookie、Token、密码、验证码，也不要求我手工操作日常编辑和发布 UI。登录超时如实报告，等我方便时再继续。
+>
+> 6. 验证能力：使用 wm platform capabilities PLATFORM --account ALIAS --json 核对所选账号的功能。命令参数以实际 --help 和 schema 为准，PLATFORM、ALIAS 等占位符必须替换为实际值；平台不支持的操作要说明，不用正式发布代替保存草稿。
+>
+> 7. 最后用中文报告安装版本、运行环境、Skill 路径、各目标平台登录的账号与核验结果，以及尚未完成的事项；给我一条符合已登录平台能力的自然语言使用示例，再询问我要处理的文章或 Markdown 路径、图片、目标平台和账号，以及保存草稿还是正式发布。本次只安装、配置和只读验证，不创建测试文章、不上传素材、不发表或群发。收到明确的内容与操作范围后，再按我的要求执行。
 
 <details>
 <summary>我想自行安装</summary>

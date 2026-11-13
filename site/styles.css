@@ -612,6 +612,8 @@ h2 {
   padding:34px
 }
 .getting-started #setup-prompt {
+  white-space:pre-line;
+  overflow-wrap:anywhere;
   font-size:16px;
   margin:20px 0 25px
 }
