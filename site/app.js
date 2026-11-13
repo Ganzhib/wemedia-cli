@@ -21,7 +21,7 @@ const dialogStatus = document.getElementById('prompt-dialog-status');
 function openPrompt(source) {
   document.getElementById('prompt-dialog-title').textContent = source.dataset.title;
   dialogContent.textContent = source.textContent;
-  dialogStatus.textContent = '复制给你的 AI 助手，并提供文章和图片。';
+  dialogStatus.textContent = '复制给你的 AI 助手，按提示完成操作。';
   promptDialog.showModal();
   document.querySelector('.prompt-dialog-body').scrollTop = 0;
 }
@@ -42,7 +42,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
   let message = '已复制，粘贴给你的 AI 助手即可。';
   try { await navigator.clipboard.writeText(element.textContent); }
   catch {
-    // Hidden platform prompts must be shown before selecting them for manual copying.
+    // Hidden prompts must be shown before selecting them for manual copying.
     if (element.hidden) {
       openPrompt(element);
       element = dialogContent;

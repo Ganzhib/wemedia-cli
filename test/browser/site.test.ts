@@ -30,13 +30,13 @@ for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding a
     assert.equal(await page.locator('#scenario-steps li').count(), 3);
   }
   const dialog = page.getByRole('dialog');
-  for (const platform of ['wechat', 'xiaohongshu', 'juejin', 'zhihu']) {
-    const source = page.locator(`#platform-prompt-${platform}`);
+  for (const promptId of ['setup-prompt', 'platform-prompt-wechat', 'platform-prompt-xiaohongshu', 'platform-prompt-juejin', 'platform-prompt-zhihu']) {
+    const source = page.locator(`#${promptId}`);
     const prompt = await source.textContent();
-    const trigger = page.locator(`[data-prompt="platform-prompt-${platform}"]`);
-    const card = trigger.locator('..');
+    const trigger = page.locator(`[data-prompt="${promptId}"]`);
+    const card = trigger.locator('..').locator('..');
     const cardHeight = await card.evaluate(element => element.getBoundingClientRect().height);
-    await page.locator(`[data-copy="platform-prompt-${platform}"]`).click();
+    await page.locator(`[data-copy="${promptId}"]`).click();
     assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), prompt);
     assert.equal(await dialog.isVisible(), false);
     await trigger.click();
@@ -81,6 +81,10 @@ for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding a
   assert.equal(await dialog.isVisible(), true);
   assert.equal(await page.evaluate(() => window.getSelection()?.toString()), await page.locator('#platform-prompt-wechat').textContent());
   assert.match(await page.locator('#prompt-dialog-status').innerText(), /手动复制/);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-copy="setup-prompt"]').click();
+  assert.equal(await dialog.isVisible(), true);
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), await page.locator('#setup-prompt').textContent());
   await page.keyboard.press('Escape');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
