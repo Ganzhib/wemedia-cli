@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="620" viewBox="0 0 900 620" role="img" aria-labelledby="flow-title flow-description">
-  <title id="flow-title">一个 wm 核心，连接多平台内容能力</title>
-  <desc id="flow-description">左侧文稿与稳定账号身份进入 wm，共享核心将内容交给掘金、小红书、公众号和知乎各自的适配器。线路表示架构关系，不代表平台功能或线上验收状态。</desc>
+  <title id="flow-title">一个 wm-cli 核心，连接多平台内容能力</title>
+  <desc id="flow-description">左侧文稿与稳定账号身份进入 wm-cli，共享核心将内容交给掘金、小红书、公众号和知乎各自的适配器。线路表示架构关系，不代表平台功能或线上验收状态。</desc>
   <defs>
     <pattern id="flow-grid" width="28" height="28" patternUnits="userSpaceOnUse">
       <circle cx="1" cy="1" r="1" fill="#bac9bd" opacity=".4"/>

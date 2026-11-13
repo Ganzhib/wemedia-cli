@@ -15,6 +15,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
   let message = '已复制，粘贴给你的 AI 助手即可。';
   try { await navigator.clipboard.writeText(element.textContent); }
   catch {
+    // Text inside a collapsed prompt must be visible for manual selection.
+    const details = element.closest('details');
+    if (details) details.open = true;
     const range = document.createRange(); range.selectNodeContents(element);
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
     message = '已选中文本，请手动复制。';
