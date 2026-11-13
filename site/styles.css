@@ -10,7 +10,8 @@
   color:var(--ink);
   background:var(--paper);
   scroll-behavior:smooth;
-  scroll-padding-top:30px
+  scroll-padding-top:calc(var(--site-header-height,158px) + 24px);
+  scrollbar-gutter:stable
 }
 * {
   box-sizing:border-box
@@ -49,6 +50,12 @@ a:hover {
 .wrap {
   width:min(1180px,calc(100% - 88px));
   margin-inline:auto
+}
+.site-header {
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:var(--paper)
 }
 .header {
   height:94px;
@@ -530,10 +537,90 @@ h2 {
   padding-top:15px;
   margin-top:auto
 }
-.platform-grid .platform-prompt {
+.prompt-trigger {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  text-align:left;
+  background:none;
+  border:0;
+  border-bottom:1px solid var(--line);
+  padding:20px 0;
+  min-height:88px;
+  font-size:14px;
+  font-weight:600;
+  line-height:1.65
+}
+.prompt-trigger:hover {
+  color:var(--green)
+}
+body:has(.prompt-dialog[open]) {
+  overflow:hidden
+}
+.prompt-dialog {
+  width:min(720px,calc(100% - 32px));
+  max-height:calc(100dvh - 32px);
+  padding:0;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
   color:var(--ink);
+  box-shadow:0 24px 80px #12281f40
+}
+.prompt-dialog[open] {
+  display:flex;
+  flex-direction:column
+}
+.prompt-dialog::backdrop {
+  background:#12281f80;
+  backdrop-filter:blur(4px)
+}
+.prompt-dialog-heading {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  padding:24px;
+  border-bottom:1px solid var(--line)
+}
+.prompt-dialog-heading h2 {
+  font-size:22px;
+  line-height:1.5;
+  margin:8px 0 0
+}
+.dialog-close {
+  flex:none;
+  width:40px;
+  height:40px;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:var(--paper);
+  font-size:26px;
+  line-height:1
+}
+.prompt-dialog-body {
+  overflow:auto;
+  overscroll-behavior:contain;
+  padding:24px;
+  min-height:0;
   overflow-wrap:anywhere;
-  margin-top:16px
+  font-size:16px
+}
+.prompt-dialog-footer {
+  padding:20px 24px;
+  border-top:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px 20px
+}
+.prompt-dialog-heading,.prompt-dialog-footer {
+  flex-shrink:0
+}
+#prompt-dialog-status {
+  color:var(--muted);
+  font-size:12px
 }
 .platform-grid .copy-button {
   align-self:flex-start;
@@ -697,7 +784,7 @@ pre {
   padding:12px;
   background:var(--ink);
   color:white;
-  z-index:5
+  z-index:30
 }
 .skip-link:focus {
   top:10px

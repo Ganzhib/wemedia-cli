@@ -29,6 +29,44 @@ for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding a
     assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), prompt);
     assert.equal(await page.locator('#scenario-steps li').count(), 3);
   }
+  const dialog = page.getByRole('dialog');
+  for (const platform of ['wechat', 'xiaohongshu', 'juejin', 'zhihu']) {
+    const source = page.locator(`#platform-prompt-${platform}`);
+    const prompt = await source.textContent();
+    const trigger = page.locator(`[data-prompt="platform-prompt-${platform}"]`);
+    const card = trigger.locator('..');
+    const cardHeight = await card.evaluate(element => element.getBoundingClientRect().height);
+    await page.locator(`[data-copy="platform-prompt-${platform}"]`).click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), prompt);
+    assert.equal(await dialog.isVisible(), false);
+    await trigger.click();
+    assert.equal(await dialog.isVisible(), true);
+    assert.equal(await page.locator('#prompt-dialog-title').textContent(), await source.getAttribute('data-title'));
+    assert.equal(await page.locator('#prompt-dialog-content').textContent(), prompt);
+    assert.equal(await card.evaluate(element => element.getBoundingClientRect().height), cardHeight);
+    await page.locator('[data-copy="prompt-dialog-content"]').click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.copied), prompt);
+    assert.match(await page.locator('#prompt-dialog-status').innerText(), /已复制/);
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await trigger.evaluate(element => element === document.activeElement), true);
+  }
+  await page.locator('[data-prompt="platform-prompt-wechat"]').click();
+  await page.getByRole('button', { name: '关闭提示词弹窗' }).click();
+  assert.equal(await dialog.isVisible(), false);
+  await page.locator('[data-prompt="platform-prompt-zhihu"]').click();
+  await page.mouse.click(2, 2);
+  assert.equal(await dialog.isVisible(), false);
+  // The whole header sticks, and anchor destinations remain below its responsive height.
+  await page.evaluate(() => { document.documentElement.style.scrollBehavior = 'auto'; });
+  await page.locator('nav a[href="#platforms"]').click();
+  const positions = await page.evaluate(() => ({
+    headerTop: document.querySelector('.site-header')!.getBoundingClientRect().top,
+    headerBottom: document.querySelector('.site-header')!.getBoundingClientRect().bottom,
+    sectionTop: document.getElementById('platforms')!.getBoundingClientRect().top,
+  }));
+  assert.equal(positions.headerTop, 0);
+  assert.ok(positions.sectionTop >= positions.headerBottom);
   await page.locator('[data-copy="setup-prompt"]').click();
   assert.match(await page.evaluate(() => document.documentElement.dataset.copied ?? ''), /WeMedia.*最新版本/);
   await page.getByText('自行安装', { exact: true }).click();
@@ -39,6 +77,11 @@ for (const width of [1440, 390, 320]) test(`product site scenarios, onboarding a
   await page.locator('[data-copy="install-command"]').click();
   assert.equal(await page.evaluate(() => window.getSelection()?.toString()), await page.locator('#install-command').innerText());
   assert.match(await page.locator('#copy-status').innerText(), /手动复制/);
+  await page.locator('[data-copy="platform-prompt-wechat"]').click();
+  assert.equal(await dialog.isVisible(), true);
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), await page.locator('#platform-prompt-wechat').textContent());
+  assert.match(await page.locator('#prompt-dialog-status').innerText(), /手动复制/);
+  await page.keyboard.press('Escape');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
 });
